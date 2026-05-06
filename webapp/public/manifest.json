@@ -1,0 +1,16 @@
+{
+  "name": "StrongVMAX",
+  "short_name": "StrongVMAX",
+  "description": "App per il tracking degli allenamenti in palestra",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#0057FF",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
