@@ -20,12 +20,13 @@ class GymChimePlayer {
     if (this.audioCtx) return;
     
     try {
+      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioContextClass) {
         this.audioCtx = new AudioContextClass();
       }
-    } catch (e) {
-      console.error("Web Audio API not supported:", e);
+    } catch {
+      console.error("Web Audio API not supported");
     }
   }
 
@@ -86,8 +87,8 @@ class GymChimePlayer {
 
       this.silenceOsc.start();
       console.log("Background audio keeper started successfully");
-    } catch (e) {
-      console.error("Failed to start background silence carrier:", e);
+    } catch {
+      console.error("Failed to start background silence carrier");
     }
   }
 
@@ -107,7 +108,7 @@ class GymChimePlayer {
         this.silenceGain = null;
       }
       console.log("Background audio keeper stopped");
-    } catch (e) {
+    } catch {
       // ignore
     }
   }

@@ -76,6 +76,7 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET || "default_super_secret_for_development_and_testing_strongvmax",
 };
 
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
 async function refreshAccessToken(token: any) {
   try {
     const url = "https://oauth2.googleapis.com/token";

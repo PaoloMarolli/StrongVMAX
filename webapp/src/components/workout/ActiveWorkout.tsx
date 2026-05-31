@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { Check, Play, Pause, FastForward, Plus, Trash2, X, ChevronDown } from "lucide-react";
-import { storage, Exercise } from "@/utils/storage";
+import { Check, Play, Pause, FastForward, Plus, Trash2, X } from "lucide-react";
+import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
 import { useSession } from "next-auth/react";
 import { gymChime } from "@/utils/audio";
 
@@ -100,6 +100,7 @@ export default function ActiveWorkout() {
 
   // Custom Highlight/Overwrite State
   const [shouldOverwrite, setShouldOverwrite] = useState(false);
+  const [keypadHighlightTrigger, setKeypadHighlightTrigger] = useState(0);
 
   // Swipe to Delete State
   const [swipingSetKey, setSwipingSetKey] = useState<string | null>(null);
@@ -157,16 +158,19 @@ export default function ActiveWorkout() {
   // Highlight active input programmatically when shouldOverwrite is enabled
   useEffect(() => {
     if (shouldOverwrite && activeKeypad && typeof window !== "undefined") {
-      const activeEl = document.activeElement as HTMLInputElement;
-      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
+      const { exIdx, setIdx, field } = activeKeypad;
+      const inputId = `input_${exIdx}_${setIdx}_${field}`;
+      const activeEl = document.getElementById(inputId) as HTMLInputElement;
+      if (activeEl) {
         try {
+          activeEl.focus();
           activeEl.select();
         } catch {
           // ignore selector errors
         }
       }
     }
-  }, [shouldOverwrite, activeKeypad]);
+  }, [shouldOverwrite, activeKeypad, keypadHighlightTrigger]);
 
   // Countdown timer logic using absolute timestamps for background resilience
   useEffect(() => {
@@ -499,12 +503,14 @@ export default function ActiveWorkout() {
       const step = getWeightStep(foundEx?.equipment || "");
       adjustWeight(exIdx, setIdx, direction === "up" ? step : -step);
       setShouldOverwrite(true); // highlight again after step adjust!
+      setKeypadHighlightTrigger((prev) => prev + 1);
     } else {
       const foundEx = exercisesCatalog.find(c => c.id === activeExercises[exIdx].exerciseId);
       const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
       const step = isDuration ? 10 : 1;
       adjustReps(exIdx, setIdx, direction === "up" ? step : -step);
       setShouldOverwrite(true); // highlight again after step adjust!
+      setKeypadHighlightTrigger((prev) => prev + 1);
     }
   };
 
@@ -573,7 +579,7 @@ export default function ActiveWorkout() {
       const session = sessions[i];
       const foundEx = session.exercises.find((e) => e.exerciseId === exerciseId);
       if (foundEx) {
-        const prevVol = foundEx.sets.reduce((sum, s) => sum + (s.weight * s.reps), 0);
+        const prevVol = foundEx.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type), 0);
         if (prevVol === 0) return null;
         const diff = currentVolume - prevVol;
         const pct = (diff / prevVol) * 100;
@@ -587,25 +593,21 @@ export default function ActiveWorkout() {
     return null;
   };
 
-  const getExerciseSetsDelta = (exerciseId: string, currentSetsCount: number): { percent: string; isPositive: boolean; isNeutral: boolean } | null => {
-    const sessions = storage.getHistory();
-    // Search backward for the most recent session containing this exercise
-    for (let i = sessions.length - 1; i >= 0; i--) {
-      const session = sessions[i];
-      const foundEx = session.exercises.find((e) => e.exerciseId === exerciseId);
-      if (foundEx) {
-        const prevSetsCount = foundEx.sets.length;
-        if (prevSetsCount === 0) return null;
-        const diff = currentSetsCount - prevSetsCount;
-        const pct = (diff / prevSetsCount) * 100;
-        return {
-          percent: pct >= 0 ? `+${pct.toFixed(0)}%` : `${pct.toFixed(0)}%`,
-          isPositive: pct > 0,
-          isNeutral: pct === 0,
-        };
-      }
-    }
-    return null;
+  const cycleSetType = (exIdx: number, setIdx: number) => {
+    setActiveExercises((prev) => {
+      const copy = JSON.parse(JSON.stringify(prev));
+      const set = copy[exIdx].sets[setIdx];
+      const currentType = set.type || "N";
+      let nextType = "N";
+      if (currentType === "N") nextType = "W";
+      else if (currentType === "W") nextType = "F";
+      else if (currentType === "F") nextType = "D";
+      else nextType = "N";
+      
+      set.type = nextType;
+      return copy;
+    });
+    setShouldOverwrite(true); // Focus highlight active set input
   };
 
   const handleTimeInputChange = (exIdx: number, setIdx: number, val: string) => {
@@ -668,7 +670,7 @@ export default function ActiveWorkout() {
 
   const handleFinishWorkout = async () => {
     // If the session token could not be refreshed by NextAuth rotation
-    if (session && (session as any).error === "RefreshAccessTokenError") {
+    if (session && (session as { error?: string }).error === "RefreshAccessTokenError") {
       setIsSyncing(true);
       setSyncStatus("error");
       setSyncErrorMsg("Sessione Google scaduta. Scollegati dal tuo profilo nella scheda 'Storico' ed esegui nuovamente l'accesso per ripristinare il collegamento.");
@@ -888,8 +890,8 @@ export default function ActiveWorkout() {
             <div key={ex.exerciseId} className="glass-panel rounded-2xl overflow-hidden border border-white/20 dark:border-white/5">
               <div className="p-4 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-white/10 dark:bg-black/10">
                 <div>
-                  <h2 className="text-base font-bold text-primary">{ex.exerciseName}</h2>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 items-center">
+                  <h2 className="text-[17px] font-extrabold text-primary">{ex.exerciseName}</h2>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5 items-center">
                     {isDuration ? (
                       <>
                         <span>Durata tot: <span className="font-semibold text-primary">{secondsToHHMMSS(ex.sets.reduce((sum, s) => sum + s.reps, 0)) || "00:00"}</span></span>
@@ -900,9 +902,9 @@ export default function ActiveWorkout() {
                     ) : (
                       <>
                         <span className="flex items-center gap-1">
-                          Volume: <span className="font-semibold text-primary">{ex.sets.reduce((sum, s) => sum + (s.weight * s.reps), 0)} kg</span>
+                          Volume: <span className="font-semibold text-primary">{ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0)} kg</span>
                           {(() => {
-                            const currentVolume = ex.sets.reduce((sum, s) => sum + (s.weight * s.reps), 0);
+                            const currentVolume = ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0);
                             const delta = getExerciseVolumeDelta(ex.exerciseId, currentVolume);
                             if (!delta) return null;
                             return (
@@ -920,24 +922,6 @@ export default function ActiveWorkout() {
                         </span>
                       </>
                     )}
-                    <span className="flex items-center gap-1">
-                      Serie: <span className="font-semibold text-primary">{ex.sets.length}</span>
-                      {(() => {
-                        const delta = getExerciseSetsDelta(ex.exerciseId, ex.sets.length);
-                        if (!delta) return null;
-                        return (
-                          <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.2 rounded font-sans uppercase leading-none ${
-                            delta.isNeutral
-                              ? "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 dark:text-zinc-400"
-                              : delta.isPositive 
-                                ? "bg-green-500/10 text-green-600 border border-green-500/20 dark:text-green-400" 
-                                : "bg-red-500/10 text-red-600 border border-red-500/20 dark:text-red-400"
-                          }`}>
-                            {delta.isNeutral ? "●" : delta.isPositive ? "▲" : "▼"} {delta.percent}
-                          </span>
-                        );
-                      })()}
-                    </span>
                   </div>
                 </div>
                 <button 
@@ -1033,84 +1017,100 @@ export default function ActiveWorkout() {
                               touchAction: "pan-y"
                             }}
                           >
-                            {/* Serie Badge (Static index indicator) */}
-                            <div className="text-left pl-1">
-                              <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-lg w-7 h-7 text-[13px] font-bold flex items-center justify-center">
-                                {set.setOrder}
-                              </span>
-                            </div>
-                            
-                            {/* Weight Column: Capsule Pill Input */}
-                            <div className="px-1">
-                              <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3.5 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
-                                <input 
-                                  type="text" 
-                                  inputMode="none" // blocks native keyboard
-                                  value={displayWeight}
-                                  placeholder={weightPlaceholder}
-                                  onFocus={() => {
-                                    setActiveKeypad({ exIdx, setIdx, field: "weight" });
-                                    setShouldOverwrite(true);
-                                  }}
-                                  onChange={(e) => updateSet(exIdx, setIdx, "weight", e.target.value)}
-                                  onBlur={(e) => handleWeightInputBlur(exIdx, setIdx, e.target.value)}
-                                  className="w-full bg-transparent text-center font-bold text-base focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
-                                />
-                                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">kg</span>
-                              </div>
-                            </div>
+                             {/* Serie Badge (Interactive button to cycle types) */}
+                             <div className="text-left pl-1">
+                               <button
+                                 type="button"
+                                 onClick={() => cycleSetType(exIdx, setIdx)}
+                                 className={`rounded-lg w-7 h-7 text-[13px] font-bold flex items-center justify-center active:scale-90 transition-transform ${
+                                   set.type === "W"
+                                     ? "bg-orange-500/10 text-orange-500 border border-orange-500/20"
+                                     : set.type === "F"
+                                       ? "bg-red-500/10 text-red-500 border border-red-500/20"
+                                       : set.type === "D"
+                                         ? "bg-purple-500/10 text-purple-500 border border-purple-500/20"
+                                         : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                 }`}
+                                 title="Tipo di serie: Normale, Warmup (W), Cedimento (F), Dropset (D)"
+                               >
+                                 {set.type === "W" ? "W" : set.type === "F" ? "F" : set.type === "D" ? "D" : set.setOrder}
+                               </button>
+                             </div>
+                             
+                             {/* Weight Column: Capsule Pill Input */}
+                             <div className="px-1">
+                               <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3.5 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
+                                 <input 
+                                   type="text" 
+                                   id={`input_${exIdx}_${setIdx}_weight`}
+                                   inputMode="none" // blocks native keyboard
+                                   value={displayWeight}
+                                   placeholder={weightPlaceholder}
+                                   onFocus={() => {
+                                     setActiveKeypad({ exIdx, setIdx, field: "weight" });
+                                     setShouldOverwrite(true);
+                                   }}
+                                   onChange={(e) => updateSet(exIdx, setIdx, "weight", e.target.value)}
+                                   onBlur={(e) => handleWeightInputBlur(exIdx, setIdx, e.target.value)}
+                                   className="w-full bg-transparent text-center font-bold text-[17px] focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
+                                 />
+                                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">kg</span>
+                               </div>
+                             </div>
 
-                            {/* RPE Column (RPE button) */}
-                            <div className="text-center">
-                              <button 
-                                type="button"
-                                onClick={() => setRpePickerState({ exIdx, setIdx })}
-                                className={`h-7 min-w-[28px] px-1.5 rounded-md text-[11px] font-bold transition-all flex items-center justify-center mx-auto ${
-                                  set.rpe !== undefined && set.rpe > 0
-                                    ? "bg-primary/10 text-primary border border-primary/20 scale-105" 
-                                    : "text-gray-400 hover:text-primary bg-black/5 dark:bg-white/5"
-                                }`}
-                              >
-                                {set.rpe !== undefined && set.rpe > 0 ? set.rpe.toString().replace(".", ",") : "@"}
-                              </button>
-                            </div>
+                             {/* RPE Column (RPE button) */}
+                             <div className="text-center">
+                               <button 
+                                 type="button"
+                                 onClick={() => setRpePickerState({ exIdx, setIdx })}
+                                 className={`h-7 min-w-[28px] px-1.5 rounded-md text-[11px] font-bold transition-all flex items-center justify-center mx-auto ${
+                                   set.rpe !== undefined && set.rpe > 0
+                                     ? "bg-primary/10 text-primary border border-primary/20 scale-105" 
+                                     : "text-gray-400 hover:text-primary bg-black/5 dark:bg-white/5"
+                                 }`}
+                               >
+                                 {set.rpe !== undefined && set.rpe > 0 ? set.rpe.toString().replace(".", ",") : "@"}
+                               </button>
+                             </div>
 
-                            {/* Reps or Duration Column: Capsule Pill Input */}
-                            <div className="px-1">
-                              <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
-                                {isDuration ? (
-                                  <input 
-                                    type="text" 
-                                    inputMode="none" // blocks native keyboard
-                                    value={timeInputs[`${exIdx}_${setIdx}`] !== undefined ? timeInputs[`${exIdx}_${setIdx}`] : (set.reps === 0 ? "" : secondsToHHMMSS(set.reps))}
-                                    placeholder={repsPlaceholder}
-                                    onFocus={() => {
-                                      setActiveKeypad({ exIdx, setIdx, field: "reps" });
-                                      setShouldOverwrite(true);
-                                    }}
-                                    onChange={(e) => handleTimeInputChange(exIdx, setIdx, e.target.value)}
-                                    onBlur={(e) => handleTimeInputBlur(exIdx, setIdx, e.target.value)}
-                                    className="w-full bg-transparent text-center font-bold text-base font-mono focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600 animate-none" 
-                                  />
-                                ) : (
-                                  <input 
-                                    type="text" 
-                                    inputMode="none" // blocks native keyboard
-                                    value={set.reps === 0 ? "" : set.reps}
-                                    placeholder={repsPlaceholder}
-                                    onFocus={() => {
-                                      setActiveKeypad({ exIdx, setIdx, field: "reps" });
-                                      setShouldOverwrite(true);
-                                    }}
-                                    onChange={(e) => updateSet(exIdx, setIdx, "reps", e.target.value)}
-                                    className="w-full bg-transparent text-center font-bold text-base focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
-                                  />
-                                )}
-                                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">
-                                  {isDuration ? "sec" : "reps"}
-                                </span>
-                              </div>
-                            </div>
+                             {/* Reps or Duration Column: Capsule Pill Input */}
+                             <div className="px-1">
+                               <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
+                                 {isDuration ? (
+                                   <input 
+                                     type="text" 
+                                     id={`input_${exIdx}_${setIdx}_reps`}
+                                     inputMode="none" // blocks native keyboard
+                                     value={timeInputs[`${exIdx}_${setIdx}`] !== undefined ? timeInputs[`${exIdx}_${setIdx}`] : (set.reps === 0 ? "" : secondsToHHMMSS(set.reps))}
+                                     placeholder={repsPlaceholder}
+                                     onFocus={() => {
+                                       setActiveKeypad({ exIdx, setIdx, field: "reps" });
+                                       setShouldOverwrite(true);
+                                     }}
+                                     onChange={(e) => handleTimeInputChange(exIdx, setIdx, e.target.value)}
+                                     onBlur={(e) => handleTimeInputBlur(exIdx, setIdx, e.target.value)}
+                                     className="w-full bg-transparent text-center font-bold text-[17px] font-mono focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600 animate-none" 
+                                   />
+                                 ) : (
+                                   <input 
+                                     type="text" 
+                                     id={`input_${exIdx}_${setIdx}_reps`}
+                                     inputMode="none" // blocks native keyboard
+                                     value={set.reps === 0 ? "" : set.reps}
+                                     placeholder={repsPlaceholder}
+                                     onFocus={() => {
+                                       setActiveKeypad({ exIdx, setIdx, field: "reps" });
+                                       setShouldOverwrite(true);
+                                     }}
+                                     onChange={(e) => updateSet(exIdx, setIdx, "reps", e.target.value)}
+                                     className="w-full bg-transparent text-center font-bold text-[17px] focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
+                                   />
+                                 )}
+                                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">
+                                   {isDuration ? "sec" : "reps"}
+                                 </span>
+                               </div>
+                             </div>
 
                             {/* Tick Checkbox complete button */}
                             <div className="text-center">

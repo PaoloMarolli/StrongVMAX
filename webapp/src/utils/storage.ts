@@ -13,6 +13,7 @@ export interface WorkoutSet {
   reps: number;
   setOrder: number;
   rpe?: number;
+  type?: string; // "N" (Normal), "W" (Warmup), "F" (Failure), "D" (Dropset)
 }
 
 export interface WorkoutExercise {
@@ -202,3 +203,14 @@ export const storage = {
     }
   },
 };
+
+export function calculateSetVolume(weight: number, reps: number, type?: string, isDuration = false): number {
+  if (isDuration) return weight;
+  const sType = type || "N";
+  if (sType === "W") return 0;
+  let effectiveReps = reps;
+  if (sType === "F") {
+    effectiveReps = Math.max(0, reps - 1);
+  }
+  return weight * effectiveReps;
+}

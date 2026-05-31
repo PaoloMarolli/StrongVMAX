@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { storage, WorkoutExercise } from "@/utils/storage";
+import { storage, WorkoutExercise, calculateSetVolume } from "@/utils/storage";
 
 type WorkoutContextType = {
   isActive: boolean;
@@ -108,15 +108,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       const foundEx = exercises.find(e => e.id === ex.exerciseId);
       const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
       ex.sets.forEach((set) => {
-        if (isDuration) {
-          if (set.weight) {
-            vol += set.weight;
-          }
-        } else {
-          if (set.weight && set.reps) {
-            vol += set.weight * set.reps;
-          }
-        }
+        vol += calculateSetVolume(set.weight, set.reps, set.type, isDuration);
       });
     });
     setTotalVolume(vol);

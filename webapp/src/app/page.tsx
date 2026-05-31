@@ -258,7 +258,7 @@ export default function RoutinePage() {
     <>
       <div className={`flex flex-col h-full w-full relative z-0 apple-page ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
-        <h1 className="text-2xl font-bold font-sans tracking-tight">Routine</h1>
+        <h1 className="text-3xl font-black font-sans tracking-tight">Routine</h1>
         <button 
           onClick={openCreator}
           className="p-2 text-primary active:scale-95 transition-transform" 
@@ -271,7 +271,7 @@ export default function RoutinePage() {
       <div className="p-4 flex-1 overflow-y-auto pb-20">
         <button 
           onClick={() => startWorkout("Workout libero", [])}
-          className="w-full glass-panel bg-primary/80 dark:bg-primary/60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 mb-6 active:scale-95 transition-all shadow-[0_8px_30px_rgb(0,87,255,0.25)] border-white/20 hover:bg-primary"
+          className="w-full glass-panel bg-primary/80 dark:bg-primary/60 text-white text-[17px] font-extrabold py-4 rounded-2xl flex items-center justify-center gap-2 mb-6 active:scale-95 transition-all shadow-[0_8px_30px_rgb(0,87,255,0.25)] border-white/20 hover:bg-primary"
         >
           <Play size={20} fill="currentColor" className="stroke-[3px]" />
           Workout libero
@@ -293,7 +293,7 @@ export default function RoutinePage() {
               >
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-lg font-bold text-foreground leading-tight">{template.name}</h2>
+                    <h2 className="text-[19px] font-extrabold text-foreground leading-tight">{template.name}</h2>
                     <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mt-1">
                       {template.exercises.length} Esercizi
                     </span>
@@ -303,7 +303,7 @@ export default function RoutinePage() {
                   </span>
                 </div>
                 
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 line-clamp-2 leading-relaxed">
+                <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-3 line-clamp-2 leading-relaxed font-medium">
                   {summary || "Nessun esercizio inserito. Tocca per visualizzare o iniziare!"}
                 </p>
               </div>
