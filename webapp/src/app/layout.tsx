@@ -3,6 +3,8 @@ import "./globals.css";
 import BottomTabBar from "@/components/BottomTabBar";
 import { WorkoutProvider } from "@/context/WorkoutContext";
 import ActiveWorkout from "@/components/workout/ActiveWorkout";
+import SwipeNavigator from "@/components/SwipeNavigator";
+import AuthProvider from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
   title: "StrongVMAX",
@@ -16,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0057FF",
+  themeColor: "#ffffff",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -30,14 +32,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it">
-      <body className="antialiased pb-16">
-        <WorkoutProvider>
-          <main className="min-h-screen">
-            {children}
-          </main>
-          <BottomTabBar />
-          <ActiveWorkout />
-        </WorkoutProvider>
+      <body className="antialiased">
+        <AuthProvider>
+          <WorkoutProvider>
+            <main className="min-h-screen pb-20">
+              {children}
+            </main>
+            <BottomTabBar />
+            <ActiveWorkout />
+            <SwipeNavigator />
+          </WorkoutProvider>
+        </AuthProvider>
       </body>
     </html>
   );
