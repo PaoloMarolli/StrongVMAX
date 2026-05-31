@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet } from "@/utils/storage";
 import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2 } from "lucide-react";
+import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
 
 function formatDuration(seconds: number) {
@@ -49,6 +49,106 @@ export default function HistoryPage() {
   const [sessionName, setSessionName] = useState("");
   const [sessionExercises, setSessionExercises] = useState<WorkoutExercise[]>([]);
   const [timeInputs, setTimeInputs] = useState<Record<string, string>>({});
+
+  // Monthly Calendar States
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+  const swipeStartX = useRef<number>(0);
+  const swipeEndX = useRef<number>(0);
+
+  const getCalendarDays = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    let startDayIdx = firstDay.getDay();
+    startDayIdx = startDayIdx === 0 ? 6 : startDayIdx - 1;
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const prevMonthTotalDays = new Date(year, month, 0).getDate();
+    
+    const days: { day: number; monthOffset: number; dateObject: Date }[] = [];
+    
+    for (let i = startDayIdx - 1; i >= 0; i--) {
+      const dayNum = prevMonthTotalDays - i;
+      days.push({ day: dayNum, monthOffset: -1, dateObject: new Date(year, month - 1, dayNum) });
+    }
+    
+    for (let i = 1; i <= totalDays; i++) {
+      days.push({ day: i, monthOffset: 0, dateObject: new Date(year, month, i) });
+    }
+    
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) {
+      days.push({ day: i, monthOffset: 1, dateObject: new Date(year, month + 1, i) });
+    }
+    
+    return days;
+  };
+
+  const getMonthlyWorkoutCount = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return history.filter(session => {
+      const sessDate = new Date(session.date);
+      return sessDate.getFullYear() === year && sessDate.getMonth() === month;
+    }).length;
+  };
+
+  const getWorkoutsForDate = (dateObject: Date) => {
+    const year = dateObject.getFullYear();
+    const month = dateObject.getMonth();
+    const dateNum = dateObject.getDate();
+    return history.filter(session => {
+      const sessDate = new Date(session.date);
+      return sessDate.getFullYear() === year && sessDate.getMonth() === month && sessDate.getDate() === dateNum;
+    });
+  };
+
+  const getMonthNameItalian = (date: Date) => {
+    const months = [
+      "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+      "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"
+    ];
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    swipeStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    swipeEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const diffX = swipeStartX.current - swipeEndX.current;
+    const threshold = 50;
+    if (Math.abs(diffX) > threshold) {
+      if (diffX > 0) {
+        handleNextMonth();
+      } else {
+        handlePrevMonth();
+      }
+    }
+    swipeStartX.current = 0;
+    swipeEndX.current = 0;
+  };
+
+  const handlePrevMonth = () => {
+    setCalendarDate((prev) => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() - 1);
+      return d;
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCalendarDate((prev) => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    });
+  };
+
 
   const hhmmssToSeconds = (str: string): number => {
     if (!str) return 0;
@@ -306,7 +406,7 @@ export default function HistoryPage() {
     <>
       <div className={`flex flex-col h-full w-full relative z-0 apple-page ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
-          <h1 className="text-2xl font-bold font-sans tracking-tight">Storico</h1>
+          <h1 className="text-3xl font-black font-sans tracking-tight">Storico</h1>
           
           <div>
             {session ? (
@@ -341,18 +441,30 @@ export default function HistoryPage() {
       <div className="p-4 flex-1 overflow-y-auto pb-20 space-y-5">
         
         {/* Weekly Activity Gamified Panel */}
-        <div className="glass-panel p-5 rounded-2xl border border-white/20 dark:border-white/5 shadow-md flex flex-col gap-4 bg-gradient-to-br from-white/10 to-transparent dark:from-white/5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center text-white shadow-md shadow-primary/20 animate-pulse">
-              <Flame size={20} fill="currentColor" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider leading-none">Questa settimana</div>
-              <div className="text-base font-bold text-foreground mt-1 flex items-baseline gap-1">
-                <span className="text-2xl font-black text-primary font-mono">{weeklyCount}</span>
-                <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">allenamenti</span>
+        <div 
+          onClick={() => {
+            setCalendarDate(new Date());
+            setIsCalendarOpen(true);
+          }}
+          className="glass-panel p-5 rounded-2xl border border-white/20 dark:border-white/5 shadow-md flex flex-col gap-4 bg-gradient-to-br from-white/10 to-transparent dark:from-white/5 cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all hover:bg-black/5 dark:hover:bg-white/5 select-none"
+        >
+          <div className="flex justify-between items-center w-full">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center text-white shadow-md shadow-primary/20 animate-pulse">
+                <Flame size={20} fill="currentColor" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider leading-none">Questa settimana</div>
+                <div className="text-base font-bold text-foreground mt-1 flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-primary font-mono">{weeklyCount}</span>
+                  <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">allenamenti</span>
+                </div>
               </div>
             </div>
+            
+            <span className="text-[10px] text-primary font-bold uppercase tracking-wider bg-primary/10 dark:bg-primary/25 border border-primary/20 px-2.5 py-1 rounded-full flex items-center gap-1.5 shrink-0">
+              <Calendar size={11} /> Vedi Mese
+            </span>
           </div>
 
           {/* 7 Days Grid */}
@@ -401,39 +513,39 @@ export default function HistoryPage() {
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <h2 className="font-bold text-base text-primary leading-tight">{session.name}</h2>
-                    <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium flex items-center gap-1 mt-1">
+                    <h2 className="text-[19px] font-extrabold text-primary leading-tight">{session.name}</h2>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 font-medium flex items-center gap-1 mt-1">
                       <Calendar size={12} /> {formatDate(session.date)}
                     </span>
                   </div>
-                  <span className="text-[9px] bg-secondary/15 text-secondary border border-secondary/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                  <span className="text-[10px] bg-secondary/15 text-secondary border border-secondary/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
                     Completato
                   </span>
                 </div>
                 
                 <div className="grid grid-cols-3 gap-3 border-t border-black/5 dark:border-white/5 pt-3 text-center">
                   <div className="flex flex-col items-center">
-                    <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                    <span className="text-[13px] font-extrabold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
                       <Clock size={11} /> Durata
                     </span>
-                    <span className="font-bold text-sm text-foreground mt-1">{formatDuration(session.durationSeconds)}</span>
+                    <span className="text-[15px] font-black text-foreground mt-1">{formatDuration(session.durationSeconds)}</span>
                   </div>
                   
                   <div className="flex flex-col items-center border-x border-black/5 dark:border-white/5">
-                    <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                    <span className="text-[13px] font-extrabold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
                       <Dumbbell size={11} /> Volume
                     </span>
-                    <span className="font-bold text-sm text-foreground mt-1">{session.totalVolume} kg</span>
+                    <span className="text-[15px] font-black text-foreground mt-1">{session.totalVolume} kg</span>
                   </div>
                   
                   <div className="flex flex-col items-center">
-                    <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Esercizi</span>
-                    <span className="font-bold text-sm text-foreground mt-1">{session.exercises.length}</span>
+                    <span className="text-[13px] font-extrabold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Esercizi</span>
+                    <span className="text-[15px] font-black text-foreground mt-1">{session.exercises.length}</span>
                   </div>
                 </div>
 
                 {/* Exercises list summary */}
-                <div className="mt-3 bg-black/5 dark:bg-black/20 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-300">
+                <div className="mt-3 bg-black/5 dark:bg-black/20 rounded-xl p-3 text-[13px] text-gray-600 dark:text-gray-300">
                   <ul className="space-y-1.5">
                     {session.exercises.map((ex, idx) => {
                       const foundEx = catalog.find(c => c.id === ex.exerciseId);
@@ -443,8 +555,8 @@ export default function HistoryPage() {
 
                       return (
                         <li key={idx} className="flex justify-between items-center">
-                          <span className="font-medium truncate max-w-[70%]">{ex.exerciseName}</span>
-                          <span className="text-gray-500 font-mono text-[10px]">
+                          <span className="font-semibold truncate max-w-[70%]">{ex.exerciseName}</span>
+                          <span className="text-gray-500 font-mono text-[11px] font-medium">
                             {isDuration ? (
                               <>
                                 {ex.sets.length} serie • {secondsToHHMMSS(maxDuration)} max{maxWeight > 0 ? ` (+ ${maxWeight} kg)` : ""}
@@ -698,6 +810,129 @@ export default function HistoryPage() {
                 Chiudi
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Monthly Calendar Drawer Modal */}
+      {isCalendarOpen && (
+        <div 
+          className="fixed inset-0 z-[150] flex items-end justify-center bg-black/60 backdrop-blur-sm transition-all duration-300"
+          onClick={() => setIsCalendarOpen(false)}
+        >
+          <div 
+            className="w-full max-w-md glass-panel bg-white/95 dark:bg-zinc-950/95 border-t border-white/30 dark:border-white/10 rounded-t-[30px] p-6 pb-8 flex flex-col gap-5 shadow-2xl transition-transform duration-300 pb-safe select-none"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            {/* Header Handle */}
+            <div className="w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto -mt-2"></div>
+            
+            {/* Calendar Header with Controls */}
+            <div className="flex justify-between items-center mt-1">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                  Attività Allenamenti
+                </span>
+                <span className="text-xl font-black text-primary font-sans leading-none mt-1">
+                  Calendario Mensile
+                </span>
+              </div>
+              <button 
+                onClick={() => setIsCalendarOpen(false)}
+                className="p-2 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 transition-all text-gray-500 dark:text-gray-400"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Monthly Nav Bar */}
+            <div className="flex justify-between items-center bg-black/5 dark:bg-white/5 rounded-2xl p-2.5 border border-black/5 dark:border-white/5">
+              <button 
+                onClick={handlePrevMonth}
+                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform text-primary"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              
+              <span className="font-extrabold text-[15px] font-sans text-foreground">
+                {getMonthNameItalian(calendarDate)}
+              </span>
+              
+              <button 
+                onClick={handleNextMonth}
+                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform text-primary"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
+            {/* Days Column Labels */}
+            <div className="grid grid-cols-7 gap-2.5 text-center text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest px-1">
+              {weekdaysLabels.map((l, i) => (
+                <span key={i}>{l}</span>
+              ))}
+            </div>
+
+            {/* Calendar Grid of Days */}
+            <div className="grid grid-cols-7 gap-2 px-0.5">
+              {getCalendarDays(calendarDate).map(({ day, monthOffset, dateObject }, index) => {
+                const dayWorkouts = getWorkoutsForDate(dateObject);
+                const hasWorkouts = dayWorkouts.length > 0;
+                const isCurrentMonth = monthOffset === 0;
+                
+                let cellClass = "";
+                if (isCurrentMonth) {
+                  if (hasWorkouts) {
+                    cellClass = "bg-gradient-to-tr from-primary to-cyan-400 text-white font-extrabold shadow-md scale-105 shadow-primary/20 border border-white/20";
+                  } else {
+                    cellClass = "bg-black/5 dark:bg-white/5 text-foreground hover:bg-black/10 dark:hover:bg-white/10 font-bold border border-transparent";
+                  }
+                } else {
+                  cellClass = "text-gray-300 dark:text-zinc-800 bg-transparent opacity-25 font-medium border border-transparent pointer-events-none";
+                }
+                
+                return (
+                  <div key={index} className="flex flex-col items-center justify-center relative aspect-square">
+                    <div 
+                      className={`w-9 h-9 rounded-full flex items-center justify-center text-xs transition-all relative ${cellClass}`}
+                      title={hasWorkouts ? `${dayWorkouts.length} Allenamento/i` : undefined}
+                    >
+                      {day}
+                      {hasWorkouts && isCurrentMonth && (
+                        <span className="absolute -bottom-0.5 -right-0.5 bg-red-500 text-white font-black text-[8px] leading-none px-1 py-0.5 rounded-full border border-white dark:border-zinc-950 scale-90">
+                          <Flame size={7} fill="currentColor" className="inline" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Monthly Recap Stat Box */}
+            <div className="bg-gradient-to-tr from-primary/10 to-blue-500/10 dark:from-primary/5 dark:to-blue-500/5 rounded-2xl p-4 border border-primary/15 dark:border-primary/5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center text-white shadow-md shadow-primary/10">
+                <Flame size={20} fill="currentColor" />
+              </div>
+              <div className="flex-1">
+                <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Riepilogo Mensile
+                </div>
+                <div className="text-xs text-foreground font-semibold mt-0.5">
+                  Nel mese di <span className="font-extrabold text-primary">{getMonthNameItalian(calendarDate).split(" ")[0]}</span> hai completato <span className="font-extrabold text-primary text-sm font-mono">{getMonthlyWorkoutCount(calendarDate)}</span> allenamenti!
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsCalendarOpen(false)}
+              className="w-full py-3.5 bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 font-bold text-sm rounded-2xl active:scale-95 transition-all duration-200 border border-black/5 dark:border-white/5"
+            >
+              Chiudi
+            </button>
           </div>
         </div>
       )}
