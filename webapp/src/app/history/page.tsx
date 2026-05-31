@@ -113,6 +113,7 @@ export default function HistoryPage() {
 
   const handleTouchStart = (e: React.TouchEvent) => {
     swipeStartX.current = e.touches[0].clientX;
+    swipeEndX.current = 0; // Reset swipeEndX on new touch start
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -120,6 +121,7 @@ export default function HistoryPage() {
   };
 
   const handleTouchEnd = () => {
+    if (swipeEndX.current === 0) return; // Ignore simple taps
     const diffX = swipeStartX.current - swipeEndX.current;
     const threshold = 50;
     if (Math.abs(diffX) > threshold) {
@@ -135,17 +137,13 @@ export default function HistoryPage() {
 
   const handlePrevMonth = () => {
     setCalendarDate((prev) => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() - 1);
-      return d;
+      return new Date(prev.getFullYear(), prev.getMonth() - 1, 1);
     });
   };
 
   const handleNextMonth = () => {
     setCalendarDate((prev) => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() + 1);
-      return d;
+      return new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
     });
   };
 
@@ -849,7 +847,11 @@ export default function HistoryPage() {
             </div>
 
             {/* Monthly Nav Bar */}
-            <div className="flex justify-between items-center bg-black/5 dark:bg-white/5 rounded-2xl p-2.5 border border-black/5 dark:border-white/5">
+            <div 
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              className="flex justify-between items-center bg-black/5 dark:bg-white/5 rounded-2xl p-2.5 border border-black/5 dark:border-white/5"
+            >
               <button 
                 onClick={handlePrevMonth}
                 className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform text-primary"
