@@ -163,6 +163,25 @@ export async function POST(req: NextRequest) {
       ) {
         continue;
       }
+      // Skip table header rows (containing terms like "esercizio", "kg", "feedback", "target", etc.)
+      const isHeaderRow = rows[r].some((cell) => {
+        if (!cell) return false;
+        const c = cell.toLowerCase().trim();
+        return (
+          c.includes("esercizio") || 
+          c === "target" || 
+          c === "kg" || 
+          c === "rpe" || 
+          c.includes("feedback") || 
+          c.includes("atleta") || 
+          c === "rest" || 
+          c === "recupero" || 
+          c === "serie" || 
+          c === "reps"
+        );
+      });
+      if (isHeaderRow) continue;
+
       sheetExerciseRows.push({ rowIdx: r, name: colA });
     }
 
@@ -177,6 +196,25 @@ export async function POST(req: NextRequest) {
         if (!rows[r] || !rows[r][0]) continue;
         const colA = rows[r][0].trim();
         if (colA.toLowerCase().includes("giorno")) continue;
+
+        // Skip table header rows
+        const isHeaderRow = rows[r].some((cell) => {
+          if (!cell) return false;
+          const c = cell.toLowerCase().trim();
+          return (
+            c.includes("esercizio") || 
+            c === "target" || 
+            c === "kg" || 
+            c === "rpe" || 
+            c.includes("feedback") || 
+            c.includes("atleta") || 
+            c === "rest" || 
+            c === "recupero" || 
+            c === "serie" || 
+            c === "reps"
+          );
+        });
+        if (isHeaderRow) continue;
 
         const rowExName = colA.toLowerCase().replace(/[^a-z0-9]/g, "");
         if (rowExName === exNameNormalized || rowExName.includes(exNameNormalized) || exNameNormalized.includes(rowExName)) {
