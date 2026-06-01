@@ -397,12 +397,12 @@ export default function HistoryPage() {
 
   const weekdaysLabels = ["L", "M", "M", "G", "V", "S", "D"];
 
-  const { isBottomBarVisible, isActive, isMinimized } = useWorkout();
+  const { isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
   const isModalActive = !isBottomBarVisible || (isActive && !isMinimized);
 
   return (
     <>
-      <div className={`flex flex-col h-full w-full relative z-0 apple-page ${isModalActive ? "apple-page-scaled" : ""}`}>
+      <div className={`flex flex-col h-full w-full relative z-0 ${pageAnimationClass} ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
           <h1 className="text-3xl font-black font-sans tracking-tight">Storico</h1>
           
@@ -784,7 +784,7 @@ export default function HistoryPage() {
                 <CheckCircle2 size={20} className="shrink-0 animate-pulse" />
                 <div className="text-xs">
                   <div className="font-bold">Google Sheets Auto-Sync Attivo</div>
-                  <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati su &quot;Scheda 18 Cata&quot;.</div>
+                  <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati su &quot;Scheda Cata 18&quot;.</div>
                 </div>
               </div>
             </div>

@@ -123,3 +123,37 @@ body {
 .ios-modal-animate {
   animation: ios-modal-slide-up 0.45s cubic-bezier(0.32, 0.94, 0.6, 1) forwards;
 }
+
+@keyframes ios-slide-in-right {
+  0% {
+    opacity: 0;
+    transform: translateX(45px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes ios-slide-in-left {
+  0% {
+    opacity: 0;
+    transform: translateX(-45px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.page-slide-right {
+  animation: ios-slide-in-right 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center top;
+}
+
+.page-slide-left {
+  animation: ios-slide-in-left 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center top;
+}

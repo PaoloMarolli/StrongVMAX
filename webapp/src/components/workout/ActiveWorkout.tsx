@@ -807,47 +807,52 @@ export default function ActiveWorkout() {
     ex.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (isMinimized) {
-    return (
-      <div 
-        onClick={() => setIsMinimized(false)}
-        className="fixed bottom-20 left-4 right-4 h-16 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-white/20 dark:border-white/10 flex items-center justify-between px-4 shadow-[0_10px_30px_rgba(0,0,0,0.15)] z-[49] cursor-pointer hover:bg-white/90 dark:hover:bg-zinc-900/90 active:scale-[0.98] transition-all duration-200 animate-in fade-in slide-in-from-bottom-4 duration-300"
-      >
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-3.5 w-3.5 items-center justify-center">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/40 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary shadow-sm shadow-primary/40"></span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-extrabold text-gray-400 dark:text-gray-500 uppercase tracking-widest leading-none">Allenamento Attivo</span>
-            <span className="text-sm font-extrabold text-primary leading-tight mt-1">{workoutName}</span>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-mono font-bold text-secondary bg-black/5 dark:bg-white/5 px-2.5 py-1 rounded-full">{formatTime(durationSeconds)}</span>
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMinimized(false);
-            }}
-            className="bg-primary hover:bg-primary/95 text-white text-xs font-extrabold px-3.5 py-2 rounded-full transition-all duration-200 active:scale-95 shadow-sm shadow-primary/20"
-          >
-            Apri
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div 
-      className="fixed inset-0 z-[100] flex flex-col ios-modal-animate bg-white/40 dark:bg-black/60 backdrop-blur-2xl"
-      style={{
-        transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
-        transition: isDragging.current ? "none" : "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease"
-      }}
-    >
+    <>
+      {/* Minimized Bottom Floating Bar */}
+      {isMinimized && (
+        <div 
+          onClick={() => setIsMinimized(false)}
+          className="fixed bottom-20 left-4 right-4 h-16 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-white/20 dark:border-white/10 flex items-center justify-between px-4 shadow-[0_10px_30px_rgba(0,0,0,0.15)] z-[49] cursor-pointer hover:bg-white/90 dark:hover:bg-zinc-900/90 active:scale-[0.98] transition-all duration-200 animate-in fade-in slide-in-from-bottom-4 duration-300"
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-3.5 w-3.5 items-center justify-center">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/40 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary shadow-sm shadow-primary/40"></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-extrabold text-gray-400 dark:text-gray-500 uppercase tracking-widest leading-none">Allenamento Attivo</span>
+              <span className="text-sm font-extrabold text-primary leading-tight mt-1">{workoutName}</span>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-mono font-bold text-secondary bg-black/5 dark:bg-white/5 px-2.5 py-1 rounded-full">{formatTime(durationSeconds)}</span>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMinimized(false);
+              }}
+              className="bg-primary hover:bg-primary/95 text-white text-xs font-extrabold px-3.5 py-2 rounded-full transition-all duration-200 active:scale-95 shadow-sm shadow-primary/20"
+            >
+              Apri
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div 
+        className="fixed inset-0 z-[100] flex flex-col ios-modal-animate bg-white/40 dark:bg-black/60 backdrop-blur-2xl"
+        style={{
+          transform: isMinimized 
+            ? "translateY(100%)" 
+            : dragOffset > 0 
+              ? `translateY(${dragOffset}px)` 
+              : "translateY(0)",
+          transition: isDragging.current ? "none" : "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease",
+          pointerEvents: isMinimized ? "none" : "auto",
+        }}
+      >
       {/* Grab-Handle Header with Drag-to-Minimize gesture */}
       <header 
         onTouchStart={handleHeaderTouchStart}
@@ -1531,7 +1536,7 @@ export default function ActiveWorkout() {
                 </div>
                 <h3 className="text-base font-bold text-primary mt-2">Sincronizzazione</h3>
                 <p className="text-xs text-gray-500 max-w-[240px]">
-                  Stiamo aggiornando la tua **&ldquo;Scheda 18 Cata&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
+                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 18&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
                 </p>
               </>
             )}
@@ -1583,5 +1588,6 @@ export default function ActiveWorkout() {
         </div>
       )}
     </div>
-  );
+  </>
+);
 }

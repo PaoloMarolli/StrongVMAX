@@ -6,7 +6,7 @@ import { useWorkout } from "@/context/WorkoutContext";
 import { storage, Exercise } from "@/utils/storage";
 
 export default function ExercisesPage() {
-  const { setBottomBarVisible, isBottomBarVisible, isActive, isMinimized } = useWorkout();
+  const { setBottomBarVisible, isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,7 +126,7 @@ export default function ExercisesPage() {
 
   return (
     <>
-      <div className={`flex flex-col h-full w-full relative z-0 apple-page ${isModalActive ? "apple-page-scaled" : ""}`}>
+      <div className={`flex flex-col h-full w-full relative z-0 ${pageAnimationClass} ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex flex-col p-4 sticky top-0 z-10 gap-3">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold font-sans tracking-tight">Esercizi</h1>

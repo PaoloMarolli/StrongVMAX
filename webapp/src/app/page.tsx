@@ -6,7 +6,7 @@ import { useWorkout } from "@/context/WorkoutContext";
 import { storage, WorkoutTemplate, Exercise, WorkoutExercise } from "@/utils/storage";
 
 export default function RoutinePage() {
-  const { startWorkout, setBottomBarVisible, isBottomBarVisible, isActive, isMinimized } = useWorkout();
+  const { startWorkout, setBottomBarVisible, isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
   
@@ -256,7 +256,7 @@ export default function RoutinePage() {
 
   return (
     <>
-      <div className={`flex flex-col h-full w-full relative z-0 apple-page ${isModalActive ? "apple-page-scaled" : ""}`}>
+      <div className={`flex flex-col h-full w-full relative z-0 ${pageAnimationClass} ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
         <h1 className="text-3xl font-black font-sans tracking-tight">Routine</h1>
         <button 

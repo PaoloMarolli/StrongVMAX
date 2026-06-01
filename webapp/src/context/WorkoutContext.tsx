@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { storage, WorkoutExercise, calculateSetVolume } from "@/utils/storage";
+import { usePathname } from "next/navigation";
 
 type WorkoutContextType = {
   isActive: boolean;
@@ -19,6 +20,7 @@ type WorkoutContextType = {
   setWorkoutName: (name: string) => void;
   isMinimized: boolean;
   setIsMinimized: (minimized: boolean) => void;
+  pageAnimationClass: string;
 };
 
 const WorkoutContext = createContext<WorkoutContextType | undefined>(undefined);
@@ -32,6 +34,36 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [workoutName, setWorkoutName] = useState("Workout libero");
   const [activeExercises, setActiveExercises] = useState<WorkoutExercise[]>([]);
   const [isBottomBarVisible, setBottomBarVisible] = useState(true);
+
+  // Dynamic Page transitions tracking
+  const pathname = usePathname();
+  const [pageAnimationClass, setPageAnimationClass] = useState("apple-page");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const paths = ["/", "/history", "/exercises"];
+      const lastPath = sessionStorage.getItem("vmax_last_path");
+      
+      if (lastPath && lastPath !== pathname) {
+        const prevIdx = paths.indexOf(lastPath);
+        const curIdx = paths.indexOf(pathname);
+        
+        if (prevIdx !== -1 && curIdx !== -1) {
+          if (curIdx > prevIdx) {
+            setPageAnimationClass("page-slide-right");
+          } else {
+            setPageAnimationClass("page-slide-left");
+          }
+        } else {
+          setPageAnimationClass("apple-page");
+        }
+      } else {
+        setPageAnimationClass("apple-page");
+      }
+      
+      sessionStorage.setItem("vmax_last_path", pathname);
+    }
+  }, [pathname]);
 
   // Restore active session details on mount if they exist in localStorage
   useEffect(() => {
@@ -188,6 +220,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         setWorkoutName,
         isMinimized,
         setIsMinimized,
+        pageAnimationClass,
       }}
     >
       {children}

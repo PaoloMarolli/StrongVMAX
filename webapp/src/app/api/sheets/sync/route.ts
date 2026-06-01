@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
 
     const accessToken = typedSession.accessToken;
 
-    // 1. Search for spreadsheet named "Scheda 18 Cata" in user's Drive
-    const query = encodeURIComponent("name='Scheda 18 Cata' and mimeType='application/vnd.google-apps.spreadsheet'");
+    // 1. Search for spreadsheet named "Scheda Cata 18" in user's Drive
+    const query = encodeURIComponent("name='Scheda Cata 18' and mimeType='application/vnd.google-apps.spreadsheet'");
     const driveRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`,
       {
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     const driveData = await driveRes.json() as GoogleDriveSearchResponse;
     if (!driveData.files || driveData.files.length === 0) {
       return NextResponse.json(
-        { error: "File 'Scheda 18 Cata' non trovato su Google Drive. Assicurati che si chiami esattamente così." },
+        { error: "File 'Scheda Cata 18' non trovato su Google Drive. Assicurati che si chiami esattamente così." },
         { status: 404 }
       );
     }
