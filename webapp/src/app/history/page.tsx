@@ -6,7 +6,7 @@ import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut, signIn } from "next-auth/react";
 
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -346,7 +346,10 @@ export default function HistoryPage() {
         setSyncStatus("error");
         const errMsg = data.error || "Errore di sincronizzazione.";
         if (response.status === 401) {
-          setSyncErrorMsg("Errore autorizzazione Google. Per favore disconnettiti dal tuo profilo in alto a destra nello Storico, accedi di nuovo ed assicurati di SPUNTARE le due caselle di permesso per Google Drive e Fogli Google!");
+          setSyncErrorMsg("Sessione Google scaduta. Re-indirizzamento automatico per l'accesso sicuro...");
+          setTimeout(() => {
+            signIn("google", { callbackUrl: window.location.href });
+          }, 1800);
         } else {
           setSyncErrorMsg(errMsg);
         }

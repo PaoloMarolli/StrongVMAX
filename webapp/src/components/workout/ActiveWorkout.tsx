@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
 import { Check, Play, Pause, FastForward, Plus, Trash2, X } from "lucide-react";
 import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { gymChime } from "@/utils/audio";
 
 function formatTime(seconds: number) {
@@ -709,7 +709,10 @@ export default function ActiveWorkout() {
           setSyncStatus("error");
           const errMsg = data.error || "Errore sconosciuto di sincronizzazione.";
           if (response.status === 401) {
-            setSyncErrorMsg("Errore autorizzazione Google. Scollegati dal profilo nella scheda 'Storico', accedi di nuovo ed assicurati di spuntare le caselle dei permessi per Drive e Fogli Google.");
+            setSyncErrorMsg("Sessione Google scaduta. Re-indirizzamento automatico per l'accesso sicuro...");
+            setTimeout(() => {
+              signIn("google", { callbackUrl: window.location.href });
+            }, 1800);
           } else if (response.status === 403 || errMsg.toLowerCase().includes("permission") || errMsg.toLowerCase().includes("insufficient")) {
             setSyncErrorMsg("Permessi Google insufficienti. Scollegati dal profilo nella scheda 'Storico', accedi di nuovo ed ASSICURATI DI SPUNTARE le caselle dei permessi per Drive e Fogli Google.");
           } else {
