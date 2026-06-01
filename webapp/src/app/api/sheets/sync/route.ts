@@ -149,66 +149,109 @@ export async function POST(req: NextRequest) {
     // 6. Match and update rows within the resolved day block
     const batchUpdates: GoogleSheetBatchUpdate[] = [];
 
-    exercises.forEach((ex: SyncExercise) => {
+    // Extract all valid exercise rows inside the target spreadsheet day block to allow positional fallback
+    const sheetExerciseRows: { rowIdx: number; name: string }[] = [];
+    for (let r = startRow + 1; r < endRow; r++) {
+      if (!rows[r]) continue;
+      const colA = rows[r][0] ? rows[r][0].trim() : "";
+      // Skip empty rows, day headers, volume metrics, or totals
+      if (
+        colA === "" || 
+        colA.toLowerCase().includes("giorno") || 
+        colA.toLowerCase().includes("volume") || 
+        colA.toLowerCase().includes("totale")
+      ) {
+        continue;
+      }
+      sheetExerciseRows.push({ rowIdx: r, name: colA });
+    }
+
+    const matchedRowIndices = new Set<number>();
+    const matchedExToRow = new Map<number, number>(); // exIdx -> rowIdx
+
+    // Phase 1: Match by name (exact or containment)
+    exercises.forEach((ex: SyncExercise, exIdx: number) => {
       const exNameNormalized = ex.exerciseName.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-      // Search row inside the range [startRow, endRow]
-      let matchedRowIdx = -1;
       for (let r = startRow; r < endRow; r++) {
         if (!rows[r] || !rows[r][0]) continue;
-        const rowExName = rows[r][0].toLowerCase().replace(/[^a-z0-9]/g, "");
+        const colA = rows[r][0].trim();
+        if (colA.toLowerCase().includes("giorno")) continue;
+
+        const rowExName = colA.toLowerCase().replace(/[^a-z0-9]/g, "");
         if (rowExName === exNameNormalized || rowExName.includes(exNameNormalized) || exNameNormalized.includes(rowExName)) {
-          matchedRowIdx = r;
-          break;
+          if (!matchedRowIndices.has(r)) {
+            matchedRowIndices.add(r);
+            matchedExToRow.set(exIdx, r);
+            break;
+          }
         }
       }
+    });
 
-      if (matchedRowIdx !== -1) {
-        const rowNumber = matchedRowIdx + 1; // 1-based row index for Google Sheets
-        const sets = ex.sets || [];
+    // Phase 2: Positional index matching fallback (if not matched by name)
+    exercises.forEach((ex: SyncExercise, exIdx: number) => {
+      if (matchedExToRow.has(exIdx)) return; // Already matched by name
 
-        if (sets.length > 0) {
-          // Format KG Column (Column D)
-          const allIdentical = sets.every(
-            (s: SyncSet) => s.weight === sets[0].weight && s.reps === sets[0].reps
-          );
+      if (sheetExerciseRows[exIdx] !== undefined) {
+        const fallbackRowIdx = sheetExerciseRows[exIdx].rowIdx;
+        if (!matchedRowIndices.has(fallbackRowIdx)) {
+          matchedRowIndices.add(fallbackRowIdx);
+          matchedExToRow.set(exIdx, fallbackRowIdx);
+          console.log(`Matched unmatched exercise '${ex.exerciseName}' (index ${exIdx}) by position to sheet row ${fallbackRowIdx + 1} ('${sheetExerciseRows[exIdx].name}')`);
+        }
+      }
+    });
 
-          let kgValue = "";
-          if (allIdentical) {
-            const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"].slice(0, sets.length).join(", ");
-            const formattedWeight = sets[0].weight.toString().replace(".", ",");
-            kgValue = `${ordinals} set ${formattedWeight} x ${sets[0].reps}`;
-          } else {
-            kgValue = sets
-              .map((s: SyncSet, idx: number) => {
-                const formattedWeight = s.weight.toString().replace(".", ",");
-                return `${idx + 1}° set ${formattedWeight} x ${s.reps}`;
-              })
-              .join("\n");
-          }
+    // Phase 3: Construct batch updates for all successfully matched exercises
+    exercises.forEach((ex: SyncExercise, exIdx: number) => {
+      const matchedRowIdx = matchedExToRow.get(exIdx);
+      if (matchedRowIdx === undefined) return;
 
-          // Format Feedback Column (Column F)
-          const rpes = sets
-            .map((s: SyncSet) => (s.rpe ? s.rpe.toString().replace(".", ",") : ""))
-            .filter(Boolean);
+      const rowNumber = matchedRowIdx + 1; // 1-based row index for Google Sheets
+      const sets = ex.sets || [];
 
-          let feedbackValue = "";
-          if (rpes.length > 0) {
-            feedbackValue = `RPE ${rpes.join(" - ")}`;
-          }
+      if (sets.length > 0) {
+        // Format KG Column (Column D)
+        const allIdentical = sets.every(
+          (s: SyncSet) => s.weight === sets[0].weight && s.reps === sets[0].reps
+        );
 
-          // Batch add values for Columns D (KG) and F (Feedback)
+        let kgValue = "";
+        if (allIdentical) {
+          const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"].slice(0, sets.length).join(", ");
+          const formattedWeight = sets[0].weight.toString().replace(".", ",");
+          kgValue = `${ordinals} set ${formattedWeight} x ${sets[0].reps}`;
+        } else {
+          kgValue = sets
+            .map((s: SyncSet, idx: number) => {
+              const formattedWeight = s.weight.toString().replace(".", ",");
+              return `${idx + 1}° set ${formattedWeight} x ${s.reps}`;
+            })
+            .join("\n");
+        }
+
+        // Format Feedback Column (Column F)
+        const rpes = sets
+          .map((s: SyncSet) => (s.rpe ? s.rpe.toString().replace(".", ",") : ""))
+          .filter(Boolean);
+
+        let feedbackValue = "";
+        if (rpes.length > 0) {
+          feedbackValue = `RPE ${rpes.join(" - ")}`;
+        }
+
+        // Batch add values for Columns D (KG) and F (Feedback)
+        batchUpdates.push({
+          range: `${sheetName}!D${rowNumber}`,
+          values: [[kgValue]],
+        });
+
+        if (feedbackValue) {
           batchUpdates.push({
-            range: `${sheetName}!D${rowNumber}`,
-            values: [[kgValue]],
+            range: `${sheetName}!F${rowNumber}`,
+            values: [[feedbackValue]],
           });
-
-          if (feedbackValue) {
-            batchUpdates.push({
-              range: `${sheetName}!F${rowNumber}`,
-              values: [[feedbackValue]],
-            });
-          }
         }
       }
     });
