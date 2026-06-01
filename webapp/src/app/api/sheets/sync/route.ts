@@ -269,28 +269,11 @@ export async function POST(req: NextRequest) {
             .join("\n");
         }
 
-        // Format Feedback Column (Column F)
-        const rpes = sets
-          .map((s: SyncSet) => (s.rpe ? s.rpe.toString().replace(".", ",") : ""))
-          .filter(Boolean);
-
-        let feedbackValue = "";
-        if (rpes.length > 0) {
-          feedbackValue = `RPE ${rpes.join(" - ")}`;
-        }
-
-        // Batch add values for Columns D (KG) and F (Feedback)
+        // Batch add values for Column D (KG)
         batchUpdates.push({
           range: `${sheetName}!D${rowNumber}`,
           values: [[kgValue]],
         });
-
-        if (feedbackValue) {
-          batchUpdates.push({
-            range: `${sheetName}!F${rowNumber}`,
-            values: [[feedbackValue]],
-          });
-        }
       }
     });
 
