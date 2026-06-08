@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet } from "@/utils/storage";
+import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet, calculateSetVolume } from "@/utils/storage";
 import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
@@ -38,6 +38,7 @@ function secondsToHHMMSS(seconds: number): string {
 export default function HistoryPage() {
   const { data: session } = useSession();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [keepAlive, setKeepAlive] = useState(false);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
   const [weeklyCount, setWeeklyCount] = useState(0);
   const [activeWeekdays, setActiveWeekdays] = useState<boolean[]>([false, false, false, false, false, false, false]); // Lun (0) a Dom (6)
@@ -49,6 +50,78 @@ export default function HistoryPage() {
   const [sessionName, setSessionName] = useState("");
   const [sessionExercises, setSessionExercises] = useState<WorkoutExercise[]>([]);
   const [timeInputs, setTimeInputs] = useState<Record<string, string>>({});
+
+  // Aggiungi Esercizio inside Past Workout Editor
+  const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newMuscleGroup, setNewMuscleGroup] = useState("Petto");
+  const [newEquipment, setNewEquipment] = useState("Bilanciere");
+  const [newBarbellPreset, setNewBarbellPreset] = useState("Olimpico (20 kg)");
+  const [newCustomBarbellText, setNewCustomBarbellText] = useState("");
+
+  const filteredCatalog = catalog.filter((ex) =>
+    ex.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectSessionExercise = (ex: Exercise) => {
+    setSessionExercises((prev) => {
+      if (prev.some((p) => p.exerciseId === ex.id)) {
+        setIsAddExerciseOpen(false);
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          exerciseId: ex.id,
+          exerciseName: ex.name,
+          sets: [{ weight: 0, reps: 0, setOrder: 1 }],
+        },
+      ];
+    });
+    setIsAddExerciseOpen(false);
+    setSearchQuery("");
+  };
+
+  const handleCreateCustomExercise = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+
+    const finalEquipment = newEquipment === "Bilanciere"
+      ? (newBarbellPreset === "Personalizzato" ? `Bilanciere - ${newCustomBarbellText || "Olimpico"}` : `Bilanciere - ${newBarbellPreset}`)
+      : newEquipment;
+
+    const newEx = storage.addExercise(newName, newMuscleGroup, finalEquipment);
+    
+    // Refresh catalog lists
+    const updatedExercises = storage.getExercises();
+    setCatalog(updatedExercises);
+    
+    // Automatically select the newly created exercise in the active selection
+    setSessionExercises((prev) => {
+      if (prev.some((p) => p.exerciseId === newEx.id)) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          exerciseId: newEx.id,
+          exerciseName: newEx.name,
+          sets: [{ weight: 0, reps: 0, setOrder: 1 }],
+        },
+      ];
+    });
+    
+    // Reset Form & Close Modals
+    setNewName("");
+    setNewMuscleGroup("Petto");
+    setNewEquipment("Bilanciere");
+    setNewBarbellPreset("Olimpico (20 kg)");
+    setNewCustomBarbellText("");
+    setIsCreateModalOpen(false);
+    setIsAddExerciseOpen(false);
+  };
 
   // Monthly Calendar States
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -184,6 +257,22 @@ export default function HistoryPage() {
     });
   };
 
+  const cycleSessionSetType = (exIdx: number, setIdx: number) => {
+    setSessionExercises((prev) => {
+      const copy = JSON.parse(JSON.stringify(prev));
+      const set = copy[exIdx].sets[setIdx];
+      const currentType = set.type || "N";
+      let nextType = "N";
+      if (currentType === "N") nextType = "W";
+      else if (currentType === "W") nextType = "F";
+      else if (currentType === "F") nextType = "D";
+      else nextType = "N";
+
+      set.type = nextType;
+      return copy;
+    });
+  };
+
   const handleTimeInputChange = (exIdx: number, setIdx: number, val: string) => {
     const key = `${exIdx}_${setIdx}`;
     setTimeInputs((prev) => ({
@@ -236,6 +325,20 @@ export default function HistoryPage() {
       });
       return copy;
     });
+
+    setTimeInputs(prev => {
+      const next = { ...prev };
+      delete next[`${exIdx}_${setIdx}`];
+      for (let i = setIdx + 1; i <= 50; i++) {
+        const oldKey = `${exIdx}_${i}`;
+        const newKey = `${exIdx}_${i - 1}`;
+        if (next[oldKey] !== undefined) {
+          next[newKey] = next[oldKey];
+          delete next[oldKey];
+        }
+      }
+      return next;
+    });
   };
 
   const handleDeleteSession = (id: string) => {
@@ -280,22 +383,20 @@ export default function HistoryPage() {
     e.preventDefault();
     if (!editingSession || !sessionName.trim()) return;
 
-    const cleanExercises = sessionExercises.filter(ex => ex.sets.length > 0);
+    const cleanExercises = sessionExercises.filter(ex => ex.sets.length > 0).map(ex => ({
+      ...ex,
+      sets: ex.sets.map(set => ({
+        ...set,
+        rpe: set.rpe !== undefined && set.rpe !== null && set.rpe.toString() !== "" ? parseFloat(set.rpe.toString().replace(",", ".")) : undefined
+      }))
+    }));
 
     let vol = 0;
     cleanExercises.forEach((ex) => {
       const foundEx = catalog.find(e => e.id === ex.exerciseId);
       const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
       ex.sets.forEach((set) => {
-        if (isDuration) {
-          if (set.weight) {
-            vol += set.weight;
-          }
-        } else {
-          if (set.weight && set.reps) {
-            vol += set.weight * set.reps;
-          }
-        }
+        vol += calculateSetVolume(set.weight, set.reps, set.type, isDuration);
       });
     });
 
@@ -365,6 +466,11 @@ export default function HistoryPage() {
     setHistory(list);
     setCatalog(storage.getExercises());
 
+    if (typeof window !== "undefined") {
+      const storedKeepAlive = localStorage.getItem("keep_alive_in_background") === "true";
+      setKeepAlive(storedKeepAlive);
+    }
+
     // Calcolo degli allenamenti della settimana corrente (Lunedì - Domenica)
     const now = new Date();
     const currentDay = now.getDay(); // 0 = Domenica, 1 = Lunedì, ecc.
@@ -410,32 +516,22 @@ export default function HistoryPage() {
           <h1 className="text-3xl font-black font-sans tracking-tight">Storico</h1>
           
           <div>
-            {session ? (
-              <button
-                onClick={() => setIsProfileOpen(true)}
-                className="w-9 h-9 rounded-full overflow-hidden border border-white/30 dark:border-white/10 ring-2 ring-primary/20 active:scale-95 transition-all flex items-center justify-center bg-black/5 dark:bg-white/5"
-              >
-                {session.user?.image ? (
-                  <img
-                    src={session.user.image}
-                    alt={session.user.name || "Profilo"}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xs font-bold text-primary">
-                    {session.user?.name ? session.user.name.charAt(0).toUpperCase() : "U"}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <a
-                href="/login"
-                className="glass-button text-xs font-semibold px-4 py-2 rounded-xl flex items-center gap-1.5 active:scale-95 transition-all text-gray-700 dark:text-gray-200 border-white/20 bg-white/20"
-              >
-                <User size={14} />
-                Accedi
-              </a>
-            )}
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="w-9 h-9 rounded-full overflow-hidden border border-white/30 dark:border-white/10 ring-2 ring-primary/20 active:scale-95 transition-all flex items-center justify-center bg-black/5 dark:bg-white/5"
+            >
+              {session?.user?.image ? (
+                <img
+                  src={session.user.image}
+                  alt={session.user.name || "Profilo"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xs font-bold text-primary flex items-center justify-center">
+                  {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : <User size={16} />}
+                </span>
+              )}
+            </button>
           </div>
         </header>
       
@@ -547,27 +643,90 @@ export default function HistoryPage() {
 
                 {/* Exercises list summary */}
                 <div className="mt-3 bg-black/5 dark:bg-black/20 rounded-xl p-3 text-[13px] text-gray-600 dark:text-gray-300">
-                  <ul className="space-y-1.5">
+                  <ul className="space-y-0">
                     {session.exercises.map((ex, idx) => {
                       const foundEx = catalog.find(c => c.id === ex.exerciseId);
                       const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
-                      const maxDuration = Math.max(...ex.sets.map(s => s.reps));
-                      const maxWeight = Math.max(...ex.sets.map(s => s.weight));
+
+                      // Find the best set (highest weight * reps, or highest duration reps)
+                      let bestSet = ex.sets[0];
+                      if (ex.sets.length > 1) {
+                        bestSet = ex.sets.reduce((best, current) => {
+                          if (isDuration) {
+                            if (current.reps !== best.reps) {
+                              return current.reps > best.reps ? current : best;
+                            }
+                            return current.weight > best.weight ? current : best;
+                          } else {
+                            const currentScore = current.weight * current.reps;
+                            const bestScore = best.weight * best.reps;
+                            if (currentScore !== bestScore) {
+                              return currentScore > bestScore ? current : best;
+                            }
+                            if (current.weight !== best.weight) {
+                              return current.weight > best.weight ? current : best;
+                            }
+                            return current.reps > best.reps ? current : best;
+                          }
+                        }, ex.sets[0]);
+                      }
+
+                      // Adjust font size dynamically based on length of exerciseName
+                      const nameLength = ex.exerciseName.length;
+                      let fontSizeClass = "text-[14px]";
+                      if (nameLength > 30) fontSizeClass = "text-[10.5px]";
+                      else if (nameLength > 20) fontSizeClass = "text-[12px]";
+                      else if (nameLength < 12) fontSizeClass = "text-[14.5px]";
 
                       return (
-                        <li key={idx} className="flex justify-between items-center">
-                          <span className="font-semibold truncate max-w-[70%]">{ex.exerciseName}</span>
-                          <span className="text-gray-500 font-mono text-[11px] font-medium">
+                        <li key={idx} className="flex flex-col py-1.5 first:pt-0 last:pb-0 border-b border-black/5 dark:border-white/5 last:border-b-0 gap-0.5">
+                          {/* Row 1: Exercise full name (with responsive font size, fully displayed) */}
+                          <span className={`font-extrabold text-zinc-900 dark:text-white leading-tight break-words ${fontSizeClass}`}>
+                            {ex.exerciseName}
+                          </span>
+                          {/* Row 2: Set count & best set details */}
+                          <span className="text-gray-500 dark:text-gray-400 font-bold text-[11px] font-sans">
                             {isDuration ? (
                               <>
-                                {ex.sets.length} serie • {secondsToHHMMSS(maxDuration)} max{maxWeight > 0 ? ` (+ ${maxWeight} kg)` : ""}
+                                {ex.sets.length} serie • Migliore: {secondsToHHMMSS(bestSet?.reps || 0)}{bestSet?.weight > 0 ? ` (+ ${bestSet.weight} kg)` : ""}
                               </>
                             ) : (
                               <>
-                                {ex.sets.length} serie • {maxWeight} kg max
+                                {ex.sets.length} serie • Migliore: {bestSet?.weight || 0} kg x {bestSet?.reps || 0}
                               </>
                             )}
                           </span>
+                          {/* Row 3: Compact inline set pills */}
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {ex.sets.map((set, sIdx) => {
+                              const typeChar = set.type || "N";
+                              let typeBg = "bg-black/5 dark:bg-white/5 text-zinc-600 dark:text-gray-400 border border-black/5 dark:border-white/5";
+                              if (typeChar === "W") typeBg = "bg-yellow-500/10 dark:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20";
+                              else if (typeChar === "F") typeBg = "bg-red-500/10 dark:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20";
+                              else if (typeChar === "D") typeBg = "bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20";
+                              
+                              return (
+                                <span 
+                                  key={sIdx} 
+                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-sans font-extrabold flex items-center gap-1 shadow-[0_1px_3px_rgba(0,0,0,0.02)] ${typeBg}`}
+                                >
+                                  <span className="opacity-60">{typeChar}</span>
+                                  <span>{isDuration ? secondsToHHMMSS(set.reps) : `${set.weight}kg x ${set.reps}`}</span>
+                                  {set.rpe !== undefined && set.rpe !== null && set.rpe > 0 && (
+                                    <span className="bg-primary/10 text-primary dark:text-blue-400 dark:bg-blue-950/40 px-1 rounded text-[8.5px] font-black leading-none py-0.5 border border-primary/10 dark:border-blue-500/10">
+                                      @{set.rpe}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                          {/* Row 4: Exercise sensations / feedback */}
+                          {ex.feedback && (
+                            <span className="text-gray-400 dark:text-zinc-500 text-[9px] font-bold leading-normal mt-1 block pl-0.5">
+                              Nota: <span className="font-semibold italic text-zinc-700 dark:text-zinc-400">{ex.feedback}</span>
+                            </span>
+                          )}
                         </li>
                       );
                     })}
@@ -631,6 +790,16 @@ export default function HistoryPage() {
                     <div key={ex.exerciseId} className="glass-panel p-4 rounded-2xl border border-black/5 flex flex-col gap-3">
                       <div className="flex justify-between items-center pb-2 border-b border-black/5">
                         <h4 className="font-bold text-sm text-primary">{ex.exerciseName}</h4>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSessionExercises((prev) => prev.filter((_, idx) => idx !== exIdx));
+                          }}
+                          className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg active:scale-95 transition-all"
+                          title="Elimina Esercizio"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
 
                       <table className="w-full text-sm text-center">
@@ -639,6 +808,7 @@ export default function HistoryPage() {
                             <th className="font-bold pb-1 text-left w-10">Serie</th>
                             <th className="font-bold pb-1 text-right pr-2">{isDuration ? "+ kg" : "kg"}</th>
                             <th className="font-bold pb-1 text-right pr-2">{isDuration ? "tempo" : "reps"}</th>
+                            <th className="font-bold pb-1 text-center w-12">RPE</th>
                             <th className="font-bold pb-1 w-8"></th>
                           </tr>
                         </thead>
@@ -646,8 +816,23 @@ export default function HistoryPage() {
                           {ex.sets.map((set, setIdx) => {
                             return (
                               <tr key={setIdx} className="border-t border-black/5">
-                                <td className="py-2 text-left font-semibold text-xs text-gray-400">
-                                  {set.setOrder}
+                                <td className="py-2 text-left">
+                                  <button
+                                    type="button"
+                                    onClick={() => cycleSessionSetType(exIdx, setIdx)}
+                                    className={`w-6 h-6 rounded-full font-sans font-extrabold text-[10px] flex items-center justify-center transition-all duration-200 active:scale-75 ${
+                                      set.type === "W"
+                                        ? "bg-yellow-500/10 text-yellow-600 dark:bg-yellow-500/20 dark:text-yellow-400 border border-yellow-500/20"
+                                        : set.type === "F"
+                                          ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 border border-red-500/20"
+                                          : set.type === "D"
+                                            ? "bg-purple-500/10 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400 border border-purple-500/20"
+                                            : "bg-black/5 text-gray-400 dark:bg-white/10 dark:text-gray-400"
+                                    }`}
+                                    title="Cambia tipo (N -> W -> F -> D)"
+                                  >
+                                    {set.type === "W" ? "W" : set.type === "F" ? "F" : set.type === "D" ? "D" : set.setOrder}
+                                  </button>
                                 </td>
                                 <td className="py-2 text-right pr-2">
                                   <input 
@@ -680,6 +865,25 @@ export default function HistoryPage() {
                                     />
                                   )}
                                 </td>
+                                <td className="py-2 text-center pr-2">
+                                  <input 
+                                    type="text" 
+                                    inputMode="decimal"
+                                    value={set.rpe === undefined || set.rpe === null || set.rpe === 0 ? "" : set.rpe}
+                                    placeholder="-"
+                                    onChange={(e) => {
+                                      const raw = e.target.value.replace(",", ".");
+                                      if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                                        setSessionExercises((prev) => {
+                                          const copy = JSON.parse(JSON.stringify(prev));
+                                          copy[exIdx].sets[setIdx].rpe = raw;
+                                          return copy;
+                                        });
+                                      }
+                                    }}
+                                    className="w-10 py-1 text-center bg-black/5 dark:bg-white/5 rounded-lg border border-transparent focus:border-primary/40 focus:outline-none font-bold text-xs" 
+                                  />
+                                </td>
                                 <td className="py-2 text-center">
                                   <button
                                     type="button"
@@ -703,9 +907,38 @@ export default function HistoryPage() {
                       >
                         <Plus size={12} /> Serie
                       </button>
+
+                      {/* Sensazioni / Feedback Esercizio */}
+                      <div className="mt-3 pt-2.5 border-t border-black/5 dark:border-white/5 flex flex-col gap-1.5">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-0.5">
+                          Sensazioni Esercizio (Feedback Atleta)
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Scrivi come ti è sembrato l'esercizio..."
+                          value={ex.feedback || ""}
+                          onChange={(e) => {
+                            const text = e.target.value;
+                            setSessionExercises((prev) => {
+                              const copy = JSON.parse(JSON.stringify(prev));
+                              copy[exIdx].feedback = text;
+                              return copy;
+                            });
+                          }}
+                          className="glass-input w-full px-3 py-2 rounded-xl text-[9px] placeholder:text-[9px] outline-none font-medium resize-none text-zinc-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-zinc-950 border border-transparent focus:border-primary/30 transition-all duration-200"
+                        />
+                      </div>
                     </div>
                   );
                 })}
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddExerciseOpen(true)}
+                  className="w-full py-3.5 mt-2 bg-white/60 hover:bg-white/95 dark:bg-zinc-900/60 dark:hover:bg-zinc-900/95 text-primary font-bold text-sm rounded-2xl flex items-center justify-center gap-2 border border-dashed border-primary/30 active:scale-[0.98] transition-all duration-200"
+                >
+                  <Plus size={16} /> Aggiungi Esercizio
+                </button>
               </div>
             </div>
 
@@ -744,6 +977,175 @@ export default function HistoryPage() {
         </div>
       )}
 
+      {/* Add Exercise Modal (Catalog Browser) inside History Editor */}
+      {isAddExerciseOpen && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="glass-panel w-full max-w-lg rounded-t-3xl p-6 h-[80vh] flex flex-col gap-4 ios-modal-animate border-x-0 border-b-0 bg-[#f5f6fa] dark:bg-zinc-900">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-foreground">Aggiungi Esercizio</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="text-xs font-bold text-primary flex items-center gap-0.5 active:scale-95 transition-transform bg-primary/10 px-3 py-1.5 rounded-full"
+                >
+                  <Plus size={14} /> Nuovo
+                </button>
+                <button 
+                  onClick={() => setIsAddExerciseOpen(false)}
+                  className="p-1.5 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 transition-all text-foreground"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca nel catalogo..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="glass-input w-full px-4 py-3 rounded-xl text-sm outline-none bg-white dark:bg-zinc-950 text-foreground border border-black/5"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {filteredCatalog.map((ex) => (
+                <div 
+                  key={ex.id}
+                  onClick={() => selectSessionExercise(ex)}
+                  className="p-3.5 rounded-xl border border-black/5 dark:border-white/5 bg-white dark:bg-zinc-800 hover:bg-black/5 dark:hover:bg-zinc-700 transition-all cursor-pointer flex justify-between items-center active:scale-[0.98] text-foreground"
+                >
+                  <div>
+                    <h4 className="font-semibold text-sm">{ex.name}</h4>
+                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">{ex.muscleGroup} • {ex.equipment}</span>
+                  </div>
+                  <Plus size={18} className="text-primary" />
+                </div>
+              ))}
+              {filteredCatalog.length === 0 && (
+                <div className="p-8 text-center text-gray-500 text-sm font-medium">
+                  Nessun esercizio trovato per &ldquo;{searchQuery}&rdquo;
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Custom Exercise Modal Inline inside History Editor */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-[140] bg-[#f5f6fa] dark:bg-zinc-950 flex flex-col p-5 ios-modal-animate pb-safe overflow-hidden">
+          {/* Header */}
+          <div className="flex justify-between items-center pb-3 border-b border-black/5 dark:border-white/5 mb-4">
+            <h2 className="text-xl font-bold font-sans text-foreground">Crea Esercizio</h2>
+            <button 
+              onClick={() => setIsCreateModalOpen(false)}
+              className="p-2 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 active:scale-95 transition-all"
+              aria-label="Chiudi"
+            >
+              <X size={20} className="text-foreground" />
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateCustomExercise} className="flex-1 flex flex-col justify-between max-w-md mx-auto w-full overflow-hidden">
+            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-4 pb-4">
+              <div className="glass-panel p-5 rounded-2xl flex flex-col gap-4 border border-black/5 dark:border-white/5 bg-white dark:bg-zinc-900">
+                <div className="flex flex-col gap-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Nome Esercizio</label>
+                  <input
+                    type="text"
+                    placeholder="Es. Curl concentrato, Affondi..."
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none font-medium bg-black/5 dark:bg-white/5 border-transparent text-foreground"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Gruppo Muscolare</label>
+                  <select
+                    value={newMuscleGroup}
+                    onChange={(e) => setNewMuscleGroup(e.target.value)}
+                    className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none appearance-none font-semibold bg-white dark:bg-zinc-800 text-foreground border border-black/5"
+                  >
+                    <option value="Petto">Petto</option>
+                    <option value="Spalle">Spalle</option>
+                    <option value="Schiena">Schiena</option>
+                    <option value="Gambe">Gambe</option>
+                    <option value="Bicipiti">Bicipiti</option>
+                    <option value="Tricipiti">Tricipiti</option>
+                    <option value="Core">Core</option>
+                    <option value="Altro">Altro</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Attrezzatura</label>
+                  <select
+                    value={newEquipment}
+                    onChange={(e) => setNewEquipment(e.target.value)}
+                    className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none appearance-none font-semibold bg-white dark:bg-zinc-800 text-foreground border border-black/5"
+                  >
+                    <option value="Bilanciere">Bilanciere</option>
+                    <option value="Smith machine">Smith machine</option>
+                    <option value="Carico libero (Dischi)">Carico libero (Dischi)</option>
+                    <option value="Manubri">Manubri</option>
+                    <option value="Macchina">Macchina</option>
+                    <option value="Cavi">Cavi</option>
+                    <option value="Corpo libero">Corpo libero</option>
+                    <option value="Durata">Durata</option>
+                    <option value="Altro">Altro</option>
+                  </select>
+                </div>
+
+                {/* Dynamic Barbell Sub-options */}
+                {newEquipment === "Bilanciere" && (
+                  <div className="flex flex-col gap-3 p-3.5 bg-black/5 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Specifica Bilanciere (Tendina)</label>
+                      <select
+                        value={newBarbellPreset}
+                        onChange={(e) => setNewBarbellPreset(e.target.value)}
+                        className="glass-input w-full px-4 py-3 rounded-xl text-sm outline-none appearance-none font-semibold bg-white dark:bg-zinc-800 text-foreground border border-black/5"
+                      >
+                        <option value="Olimpico (20 kg)">Olimpico (20 kg)</option>
+                        <option value="EZ / Sagomato (8 kg)">EZ / Sagomato (8 kg)</option>
+                        <option value="Standard (10 kg)">Standard (10 kg)</option>
+                        <option value="Trap bar (25 kg)">Trap bar (25 kg)</option>
+                        <option value="Personalizzato">Personalizzato (digita sotto)...</option>
+                      </select>
+                    </div>
+                    {newBarbellPreset === "Personalizzato" && (
+                      <div className="flex flex-col gap-1.5 text-left animate-in fade-in duration-200">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Scrivi specifica</label>
+                        <input
+                          type="text"
+                          placeholder="Es. Sagomato, 15 kg, Svizzero..."
+                          value={newCustomBarbellText}
+                          onChange={(e) => setNewCustomBarbellText(e.target.value)}
+                          className="glass-input w-full px-4 py-3 rounded-xl text-sm outline-none font-medium bg-black/5 dark:bg-white/5 border-transparent text-foreground"
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-4 bg-primary hover:bg-primary/95 text-white font-bold text-base rounded-2xl shadow-lg shadow-primary/20 active:scale-95 transition-all duration-200 mt-2"
+            >
+              Crea & Aggiungi
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* Profile Bottom Sheet Modal */}
       {isProfileOpen && (
         <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/60 backdrop-blur-sm transition-all duration-300" onClick={() => setIsProfileOpen(false)}>
@@ -764,17 +1166,17 @@ export default function HistoryPage() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="text-xl font-bold text-primary">
-                    {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : "U"}
+                  <span className="text-xl font-bold text-primary flex items-center justify-center">
+                    {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : <User size={24} />}
                   </span>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold font-sans text-foreground leading-tight truncate">
-                  {session?.user?.name || "Utente StrongVMAX"}
+                  {session?.user?.name || "Ospite"}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                  {session?.user?.email}
+                  {session?.user?.email || "Effettua l'accesso per sincronizzare"}
                 </p>
               </div>
             </div>
@@ -783,26 +1185,65 @@ export default function HistoryPage() {
             <div className="space-y-3">
               <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Integrazioni e Stato</h4>
               
-              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-green-500/10 dark:bg-green-500/5 border border-green-500/20 text-green-700 dark:text-green-400">
-                <CheckCircle2 size={20} className="shrink-0 animate-pulse" />
-                <div className="text-xs">
-                  <div className="font-bold">Google Sheets Auto-Sync Attivo</div>
-                  <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati su &quot;Scheda Cata 18&quot;.</div>
+              {session ? (
+                <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-green-500/10 dark:bg-green-500/5 border border-green-500/20 text-green-700 dark:text-green-400">
+                  <CheckCircle2 size={20} className="shrink-0 animate-pulse" />
+                  <div className="text-xs">
+                    <div className="font-bold">Google Sheets Auto-Sync Attivo</div>
+                    <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati su &quot;Scheda Cata 19&quot;.</div>
+                  </div>
                 </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsProfileOpen(false);
+                    window.location.href = "/login";
+                  }}
+                  className="w-full p-3.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold text-left active:scale-[0.98] transition-transform"
+                >
+                  Connetti Account Google Sheets
+                </button>
+              )}
+
+              {/* Timer Background Mode Toggle */}
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5">
+                <div className="flex-1 pr-4">
+                  <div className="text-xs font-bold text-foreground">Mantieni attivo in background (iOS)</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5 leading-tight">Consente al timer di suonare a telefono bloccato, ma potrebbe sospendere Spotify o Apple Music su iOS.</div>
+                </div>
+                <button
+                  onClick={() => {
+                    const nextVal = !keepAlive;
+                    setKeepAlive(nextVal);
+                    localStorage.setItem("keep_alive_in_background", nextVal.toString());
+                  }}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shrink-0 ${
+                    keepAlive ? "bg-primary" : "bg-gray-300 dark:bg-gray-700"
+                  }`}
+                  aria-label="Toggle keep alive background"
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                      keepAlive ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
               </div>
             </div>
 
             {/* Actions */}
             <div className="flex flex-col gap-3">
-              <button
-                onClick={() => {
-                  signOut({ callbackUrl: "/login" });
-                }}
-                className="w-full py-4 bg-red-500 hover:bg-red-600 text-white font-bold text-base rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 active:scale-95 transition-all duration-200"
-              >
-                <LogOut size={18} />
-                Disconnetti Account
-              </button>
+              {session && (
+                <button
+                  onClick={() => {
+                    signOut({ callbackUrl: "/login" });
+                  }}
+                  className="w-full py-4 bg-red-500 hover:bg-red-600 text-white font-bold text-base rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 active:scale-95 transition-all duration-200"
+                >
+                  <LogOut size={18} />
+                  Disconnetti Account
+                </button>
+              )}
 
               <button
                 onClick={() => setIsProfileOpen(false)}

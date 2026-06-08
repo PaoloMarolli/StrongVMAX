@@ -6,11 +6,13 @@ interface SyncSet {
   weight: number;
   reps: number;
   rpe?: number;
+  type?: string;
 }
 
 interface SyncExercise {
   exerciseName: string;
   sets: SyncSet[];
+  feedback?: string;
 }
 
 interface GoogleSheetBatchUpdate {
@@ -51,8 +53,8 @@ export async function POST(req: NextRequest) {
 
     const accessToken = typedSession.accessToken;
 
-    // 1. Search for spreadsheet named "Scheda Cata 18" in user's Drive
-    const query = encodeURIComponent("name='Scheda Cata 18' and mimeType='application/vnd.google-apps.spreadsheet'");
+    // 1. Search for spreadsheet named "Scheda Cata 19" in user's Drive
+    const query = encodeURIComponent("name='Scheda Cata 19' and mimeType='application/vnd.google-apps.spreadsheet'");
     const driveRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`,
       {
@@ -71,37 +73,120 @@ export async function POST(req: NextRequest) {
     const driveData = await driveRes.json() as GoogleDriveSearchResponse;
     if (!driveData.files || driveData.files.length === 0) {
       return NextResponse.json(
-        { error: "File 'Scheda Cata 18' non trovato su Google Drive. Assicurati che si chiami esattamente così." },
+        { error: "File 'Scheda Cata 19' non trovato su Google Drive. Assicurati che si chiami esattamente così." },
         { status: 404 }
       );
     }
 
     const spreadsheetId = driveData.files[0].id;
 
-    // 2. Parse week index from workoutName (e.g. "Upper B W7" -> Week 7)
-    // Supports formats: W7, W 7, Settimana 7, etc.
-    const weekMatch = workoutName.match(/W\s*(\d+)/i);
-    const weekIndex = weekMatch ? weekMatch[1] : "1";
-    const sheetName = `Settimana ${weekIndex}`;
+    // 2. Fetch spreadsheet metadata to get all sheet names and IDs dynamically
+    const metadataRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(title,sheetId)`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
 
-    // 3. Parse routine day index (upper A -> Day 0, lower A -> Day 1, upper B -> Day 2, lower B -> Day 3)
+    let sheetsMeta: { title: string; sheetId: number }[] = [];
+    let sheetNames: string[] = [];
+    if (metadataRes.ok) {
+      const metadata = await metadataRes.json() as { sheets?: { properties: { title: string; sheetId: number } }[] };
+      sheetsMeta = (metadata.sheets || []).map(s => s.properties);
+      sheetNames = sheetsMeta.map(s => s.title);
+      console.log("Spreadsheet sheets metadata:", sheetsMeta);
+    } else {
+      console.error("Failed to fetch spreadsheet metadata:", await metadataRes.text());
+    }
+
+    let sheetName = "";
+    if (sheetNames.length > 0) {
+      const nameLower = workoutName.toLowerCase();
+      
+      // A. Check if workoutName contains any full sheet title (case-insensitive)
+      // e.g. sheet is "Settimana 18" and workoutName is "Giorno A Settimana 18"
+      for (const sheet of sheetNames) {
+        if (nameLower.includes(sheet.toLowerCase())) {
+          sheetName = sheet;
+          break;
+        }
+      }
+
+      // B. If not matched, try matching specific patterns to find week number
+      if (!sheetName) {
+        const patterns = [
+          /w\s*(\d+)/i,        // Matches W7, W18, w 7, w 18 (user's primary format)
+          /settimana\s*(\d+)/i,
+          /week\s*(\d+)/i,
+          /\b(\d+)\b/          // any standalone number
+        ];
+        
+        for (const pattern of patterns) {
+          const match = workoutName.match(pattern);
+          if (match) {
+            const num = match[1];
+            // Look for a sheet that contains this number (e.g. number "18" matches sheet "Settimana 18")
+            const foundSheet = sheetNames.find(sheet => {
+              const sheetNumbers = (sheet.match(/\b\d+\b/g) || []) as string[];
+              return sheetNumbers.includes(num) || sheet.toLowerCase().includes(num);
+            });
+            if (foundSheet) {
+              sheetName = foundSheet;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // C. Fallback to regex parsing if metadata fetch failed or didn't match
+    if (!sheetName) {
+      const wMatch = workoutName.match(/w\s*(\d+)/i);
+      const settMatch = workoutName.match(/settimana\s*(\d+)/i);
+      const weekMatch = workoutName.match(/week\s*(\d+)/i);
+      const genericNumberMatch = workoutName.match(/\b(\d+)\b/);
+      
+      let weekIndex = "1";
+      if (wMatch) {
+        weekIndex = wMatch[1];
+      } else if (settMatch) {
+        weekIndex = settMatch[1];
+      } else if (weekMatch) {
+        weekIndex = weekMatch[1];
+      } else if (genericNumberMatch) {
+        weekIndex = genericNumberMatch[1];
+      }
+      
+      sheetName = `Settimana ${weekIndex}`;
+    }
+
+    console.log(`Resolved sheet name for workout '${workoutName}': '${sheetName}'`);
+
+    const matchedSheetMeta = sheetsMeta.find(s => s.title === sheetName);
+    const targetSheetId = matchedSheetMeta ? matchedSheetMeta.sheetId : 0;
+
+    // 3. Parse routine day index:
+    // - petto dorso -> Day 0
+    // - spalle braccia -> Day 1
+    // - gambe -> Day 2
+    // - total upper body -> Day 3
     const nameLower = workoutName.toLowerCase();
-    let dayIndex = 0; // Default Giorno A
+    let dayIndex = 0; // Default Day 0 (petto dorso)
 
-    if (nameLower.includes("upper a") || nameLower.includes("giorno a") || nameLower.includes("upper_a")) {
+    if (nameLower.includes("petto dorso") || nameLower.includes("petto - dorso") || nameLower.includes("petto/dorso") || nameLower.includes("petto e dorso")) {
       dayIndex = 0;
-    } else if (nameLower.includes("lower a") || nameLower.includes("giorno b") || nameLower.includes("lower_a")) {
+    } else if (nameLower.includes("spalle braccia") || nameLower.includes("spalle - braccia") || nameLower.includes("spalle/braccia") || nameLower.includes("spalle e braccia") || nameLower.includes("spalle, braccia")) {
       dayIndex = 1;
-    } else if (nameLower.includes("upper b") || nameLower.includes("giorno c") || nameLower.includes("upper_b")) {
+    } else if (nameLower.includes("gambe")) {
       dayIndex = 2;
-    } else if (nameLower.includes("lower b") || nameLower.includes("giorno d") || nameLower.includes("lower_b")) {
+    } else if (nameLower.includes("total upper") || nameLower.includes("total upper body") || nameLower.includes("upper body")) {
       dayIndex = 3;
     } else {
-      // Fallback matching simple letters A, B, C, D if present in isolation
-      if (nameLower.includes("giorno a") || nameLower.includes("giorno_a")) dayIndex = 0;
-      else if (nameLower.includes("giorno b") || nameLower.includes("giorno_b")) dayIndex = 1;
-      else if (nameLower.includes("giorno c") || nameLower.includes("giorno_c")) dayIndex = 2;
-      else if (nameLower.includes("giorno d") || nameLower.includes("giorno_d")) dayIndex = 3;
+      // Fallback to old names or simple letter indicators
+      if (nameLower.includes("upper a") || nameLower.includes("giorno a") || nameLower.includes("upper_a")) dayIndex = 0;
+      else if (nameLower.includes("lower a") || nameLower.includes("giorno b") || nameLower.includes("lower_a")) dayIndex = 1;
+      else if (nameLower.includes("upper b") || nameLower.includes("giorno c") || nameLower.includes("upper_b")) dayIndex = 2;
+      else if (nameLower.includes("lower b") || nameLower.includes("giorno d") || nameLower.includes("lower_b")) dayIndex = 3;
     }
 
     // 4. Fetch the values for columns A to G (up to row 50) of the parsed week sheet
@@ -128,23 +213,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Locate row index boundaries for Giorno A, B, C, D
-    const dayRows: number[] = [];
+    // 5. Locate row index boundaries for petto dorso, spalle braccia, gambe, total upper body
+    let day0Row = -1;
+    let day1Row = -1;
+    let day2Row = -1;
+    let day3Row = -1;
+
     rows.forEach((row, idx) => {
       const colA = row[0] ? row[0].toLowerCase() : "";
-      if (colA.includes("giorno a") || colA.includes("giorno b") || colA.includes("giorno c") || colA.includes("giorno d")) {
-        dayRows.push(idx);
+      
+      // Match Day 0 (petto dorso)
+      if (day0Row === -1 && (
+        (colA.includes("petto") && colA.includes("dorso")) || 
+        colA.includes("petto dorso") || 
+        colA.includes("giorno a") || 
+        colA.includes("upper a")
+      )) {
+        day0Row = idx;
+      }
+      // Match Day 1 (spalle braccia)
+      else if (day1Row === -1 && (
+        (colA.includes("spalle") && colA.includes("braccia")) || 
+        colA.includes("spalle braccia") || 
+        colA.includes("giorno b") || 
+        colA.includes("lower a")
+      )) {
+        day1Row = idx;
+      }
+      // Match Day 2 (gambe)
+      else if (day2Row === -1 && (
+        colA.includes("gambe") || 
+        colA.includes("giorno c") || 
+        colA.includes("upper b")
+      )) {
+        day2Row = idx;
+      }
+      // Match Day 3 (total upper body)
+      else if (day3Row === -1 && (
+        colA.includes("total upper") || 
+        colA.includes("upper body") || 
+        colA.includes("giorno d") || 
+        colA.includes("lower b")
+      )) {
+        day3Row = idx;
       }
     });
 
-    if (dayRows.length < 4) {
-      console.log("Day boundaries found:", dayRows);
-    }
+    console.log("Day row boundaries resolved:", { day0Row, day1Row, day2Row, day3Row });
 
-    // Determine target block boundary
-    const startRow = dayRows[dayIndex] !== undefined ? dayRows[dayIndex] : 0;
-    const nextIndex = dayIndex + 1;
-    const endRow = (dayRows[nextIndex] !== undefined) ? dayRows[nextIndex] : rows.length;
+    let startRow = 0;
+    let endRow = rows.length;
+
+    const dayStartRows = [day0Row, day1Row, day2Row, day3Row];
+    const targetStart = dayStartRows[dayIndex];
+    if (targetStart !== -1) {
+      startRow = targetStart;
+      // End row is the first subsequent day block that is found
+      let nextStart = -1;
+      for (let i = dayIndex + 1; i < dayStartRows.length; i++) {
+        if (dayStartRows[i] !== -1) {
+          nextStart = dayStartRows[i];
+          break;
+        }
+      }
+      if (nextStart !== -1) {
+        endRow = nextStart;
+      }
+    }
 
     // 6. Match and update rows within the resolved day block
     const batchUpdates: GoogleSheetBatchUpdate[] = [];
@@ -241,6 +376,39 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    // Find the feedback column index dynamically by scanning the header row in the day block
+    let feedbackColIdx = 5; // Default: Column F (0-based index 5)
+    for (let r = startRow; r < endRow; r++) {
+      if (!rows[r]) continue;
+      const isHeader = rows[r].some((cell) => {
+        if (!cell) return false;
+        const c = cell.toLowerCase().trim();
+        return c.includes("esercizio") || c === "kg" || c.includes("feedback") || c.includes("atleta");
+      });
+      
+      if (isHeader) {
+        // Prioritize "feedback atleta" column matching over coach feedback
+        let idx = rows[r].findIndex((cell) => {
+          if (!cell) return false;
+          const c = cell.toLowerCase().trim();
+          return c.includes("feedback atleta") || (c.includes("feedback") && c.includes("atleta"));
+        });
+        if (idx === -1) {
+          idx = rows[r].findIndex((cell) => {
+            if (!cell) return false;
+            const c = cell.toLowerCase().trim();
+            return c.includes("feedback");
+          });
+        }
+        if (idx !== -1) {
+          feedbackColIdx = idx;
+          console.log(`Found feedback column dynamically at index ${feedbackColIdx} (Column ${String.fromCharCode(65 + feedbackColIdx)})`);
+          break;
+        }
+      }
+    }
+    const feedbackColLetter = String.fromCharCode(65 + feedbackColIdx);
+
     // Phase 3: Construct batch updates for all successfully matched exercises
     exercises.forEach((ex: SyncExercise, exIdx: number) => {
       const matchedRowIdx = matchedExToRow.get(exIdx);
@@ -250,21 +418,36 @@ export async function POST(req: NextRequest) {
       const sets = ex.sets || [];
 
       if (sets.length > 0) {
+        // Map sets to include adjusted reps (subtract 0.5 reps if Failure tag is present)
+        const adjustedSets = sets.map((s: SyncSet) => ({
+          ...s,
+          adjustedReps: s.type === "F" ? s.reps - 0.5 : s.reps
+        }));
+
         // Format KG Column (Column D)
-        const allIdentical = sets.every(
-          (s: SyncSet) => s.weight === sets[0].weight && s.reps === sets[0].reps
+        const allIdentical = adjustedSets.every(
+          (s) => s.weight === adjustedSets[0].weight && 
+                 s.adjustedReps === adjustedSets[0].adjustedReps &&
+                 (s.rpe === undefined ? 0 : parseFloat(s.rpe.toString().replace(",", "."))) === 
+                 (adjustedSets[0].rpe === undefined ? 0 : parseFloat(adjustedSets[0].rpe.toString().replace(",", ".")))
         );
 
         let kgValue = "";
         if (allIdentical) {
-          const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"].slice(0, sets.length).join(", ");
-          const formattedWeight = sets[0].weight.toString().replace(".", ",");
-          kgValue = `${ordinals} set ${formattedWeight} x ${sets[0].reps}`;
+          const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"].slice(0, adjustedSets.length).join(", ");
+          const formattedWeight = adjustedSets[0].weight.toString().replace(".", ",");
+          const formattedReps = adjustedSets[0].adjustedReps.toString().replace(".", ",");
+          const rpeVal = adjustedSets[0].rpe ? parseFloat(adjustedSets[0].rpe.toString().replace(",", ".")) : 0;
+          const rpeSuffix = rpeVal > 0 ? ` @ ${rpeVal.toString().replace(".", ",")}` : "";
+          kgValue = `${ordinals} set ${formattedWeight} x ${formattedReps}${rpeSuffix}`;
         } else {
-          kgValue = sets
-            .map((s: SyncSet, idx: number) => {
+          kgValue = adjustedSets
+            .map((s, idx: number) => {
               const formattedWeight = s.weight.toString().replace(".", ",");
-              return `${idx + 1}° set ${formattedWeight} x ${s.reps}`;
+              const formattedReps = s.adjustedReps.toString().replace(".", ",");
+              const rpeVal = s.rpe ? parseFloat(s.rpe.toString().replace(",", ".")) : 0;
+              const rpeSuffix = rpeVal > 0 ? ` @ ${rpeVal.toString().replace(".", ",")}` : "";
+              return `${idx + 1}° set ${formattedWeight} x ${formattedReps}${rpeSuffix}`;
             })
             .join("\n");
         }
@@ -273,6 +456,12 @@ export async function POST(req: NextRequest) {
         batchUpdates.push({
           range: `${sheetName}!D${rowNumber}`,
           values: [[kgValue]],
+        });
+
+        // Batch add values for Column F/G (Feedback Atleta) resolved dynamically
+        batchUpdates.push({
+          range: `${sheetName}!${feedbackColLetter}${rowNumber}`,
+          values: [[ex.feedback || ""]],
         });
       }
     });
@@ -306,6 +495,52 @@ export async function POST(req: NextRequest) {
         { error: `Errore durante la scrittura: ${errText}` },
         { status: writeRes.status }
       );
+    }
+
+    // 8. Format feedback cells to font size 9 (if we have targetSheetId and matched exercises)
+    if (targetSheetId && matchedExToRow.size > 0) {
+      const formattingRequests = Array.from(matchedExToRow.values()).map((rowIdx) => ({
+        repeatCell: {
+          range: {
+            sheetId: targetSheetId,
+            startRowIndex: rowIdx,
+            endRowIndex: rowIdx + 1,
+            startColumnIndex: feedbackColIdx,
+            endColumnIndex: feedbackColIdx + 1
+          },
+          cell: {
+            userEnteredFormat: {
+              textFormat: {
+                fontSize: 9
+              }
+            }
+          },
+          fields: "userEnteredFormat.textFormat.fontSize"
+        }
+      }));
+
+      try {
+        const formatRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              requests: formattingRequests,
+            }),
+          }
+        );
+        if (!formatRes.ok) {
+          console.error("Failed to apply font size 9 formatting:", await formatRes.text());
+        } else {
+          console.log("Successfully formatted feedback cells to font size 9");
+        }
+      } catch (err) {
+        console.error("Error formatting feedback cells:", err);
+      }
     }
 
     return NextResponse.json({

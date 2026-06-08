@@ -20,6 +20,7 @@ export interface WorkoutExercise {
   exerciseId: string;
   exerciseName: string;
   sets: WorkoutSet[];
+  feedback?: string;
 }
 
 export interface WorkoutSession {
@@ -35,6 +36,12 @@ export interface WorkoutTemplate {
   id: string;
   name: string;
   exercises: string[]; // List of exercise IDs
+  folderId?: string;   // Optional reference to a folder
+}
+
+export interface WorkoutFolder {
+  id: string;
+  name: string;
 }
 
 const DEFAULT_EXERCISES: Exercise[] = [];
@@ -69,7 +76,12 @@ export const storage = {
       localStorage.setItem("vmax_exercises", JSON.stringify(DEFAULT_EXERCISES));
       return DEFAULT_EXERCISES;
     }
-    return JSON.parse(data);
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse exercises from storage", e);
+      return DEFAULT_EXERCISES;
+    }
   },
 
   addExercise(name: string, muscleGroup: string, equipment: string): Exercise {
@@ -124,15 +136,21 @@ export const storage = {
       localStorage.setItem("vmax_templates", JSON.stringify(DEFAULT_TEMPLATES));
       return DEFAULT_TEMPLATES;
     }
-    return JSON.parse(data);
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse templates from storage", e);
+      return DEFAULT_TEMPLATES;
+    }
   },
 
-  saveTemplate(name: string, exerciseIds: string[]): WorkoutTemplate {
+  saveTemplate(name: string, exerciseIds: string[], folderId?: string): WorkoutTemplate {
     const templates = this.getTemplates();
     const newTemplate: WorkoutTemplate = {
       id: "temp_" + Math.random().toString(36).substr(2, 9),
       name,
       exercises: exerciseIds,
+      folderId,
     };
     templates.push(newTemplate);
     if (isClient()) {
@@ -141,10 +159,10 @@ export const storage = {
     return newTemplate;
   },
 
-  updateTemplate(id: string, name: string, exerciseIds: string[]): WorkoutTemplate {
+  updateTemplate(id: string, name: string, exerciseIds: string[], folderId?: string): WorkoutTemplate {
     const templates = this.getTemplates();
     const index = templates.findIndex(t => t.id === id);
-    const updatedTemplate: WorkoutTemplate = { id, name, exercises: exerciseIds };
+    const updatedTemplate: WorkoutTemplate = { id, name, exercises: exerciseIds, folderId };
     if (index !== -1) {
       templates[index] = updatedTemplate;
     } else {
@@ -163,11 +181,75 @@ export const storage = {
     }
   },
 
+  // --- FOLDERS ---
+  getFolders(): WorkoutFolder[] {
+    if (!isClient()) return [];
+    const data = localStorage.getItem("vmax_folders");
+    if (!data) return [];
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse folders from storage", e);
+      return [];
+    }
+  },
+
+  saveFolder(name: string): WorkoutFolder {
+    const folders = this.getFolders();
+    const newFolder: WorkoutFolder = {
+      id: "fold_" + Math.random().toString(36).substr(2, 9),
+      name,
+    };
+    folders.push(newFolder);
+    if (isClient()) {
+      localStorage.setItem("vmax_folders", JSON.stringify(folders));
+    }
+    return newFolder;
+  },
+
+  updateFolder(id: string, name: string): WorkoutFolder {
+    const folders = this.getFolders();
+    const index = folders.findIndex(f => f.id === id);
+    const updated = { id, name };
+    if (index !== -1) {
+      folders[index] = updated;
+    }
+    if (isClient()) {
+      localStorage.setItem("vmax_folders", JSON.stringify(folders));
+    }
+    return updated;
+  },
+
+  deleteFolder(id: string): void {
+    const folders = this.getFolders().filter(f => f.id !== id);
+    if (isClient()) {
+      localStorage.setItem("vmax_folders", JSON.stringify(folders));
+    }
+    // Set folderId to undefined for templates under this folder so they aren't lost
+    const templates = this.getTemplates();
+    let changed = false;
+    templates.forEach(t => {
+      if (t.folderId === id) {
+        delete t.folderId;
+        changed = true;
+      }
+    });
+    if (changed && isClient()) {
+      localStorage.setItem("vmax_templates", JSON.stringify(templates));
+    }
+  },
+
   // --- WORKOUT HISTORY ---
   getHistory(): WorkoutSession[] {
     if (!isClient()) return [];
     const data = localStorage.getItem("vmax_history");
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse history from storage", e);
+      return [];
+    }
   },
 
   saveWorkout(session: Omit<WorkoutSession, "id" | "date">): WorkoutSession {

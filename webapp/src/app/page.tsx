@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical } from "lucide-react";
+import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2 } from "lucide-react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { storage, WorkoutTemplate, Exercise, WorkoutExercise } from "@/utils/storage";
+import { storage, WorkoutTemplate, WorkoutFolder, Exercise, WorkoutExercise } from "@/utils/storage";
 
 export default function RoutinePage() {
   const { startWorkout, setBottomBarVisible, isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
@@ -35,10 +35,33 @@ export default function RoutinePage() {
   const [innerBarbellPreset, setInnerBarbellPreset] = useState("Olimpico (20 kg)");
   const [innerCustomBarbellText, setInnerCustomBarbellText] = useState("");
 
+  // Folder Feature State
+  const [folders, setFolders] = useState<WorkoutFolder[]>([]);
+  const [openFolderIds, setOpenFolderIds] = useState<Record<string, boolean>>({});
+  const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [editingFolder, setEditingFolder] = useState<WorkoutFolder | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string>("");
+
   // Load templates and exercises from local-first storage
   const loadData = () => {
     setTemplates(storage.getTemplates());
     setAllExercises(storage.getExercises());
+    
+    // Load folders
+    const savedFolders = storage.getFolders();
+    setFolders(savedFolders);
+
+    // Expand new folders by default
+    setOpenFolderIds(prev => {
+      const copy = { ...prev };
+      savedFolders.forEach(f => {
+        if (copy[f.id] === undefined) {
+          copy[f.id] = true;
+        }
+      });
+      return copy;
+    });
   };
 
   useEffect(() => {
@@ -82,6 +105,7 @@ export default function RoutinePage() {
     setEditingTemplate(null);
     setTemplateName("");
     setSelectedExerciseIds([]);
+    setSelectedFolderId(""); // Uncategorized by default
     setIsEditorOpen(true);
     setBottomBarVisible(false);
   };
@@ -91,6 +115,7 @@ export default function RoutinePage() {
     setEditingTemplate(template);
     setTemplateName(template.name);
     setSelectedExerciseIds([...template.exercises]);
+    setSelectedFolderId(template.folderId || ""); // Set folder if exists
     setIsEditorOpen(true);
     setBottomBarVisible(false);
   };
@@ -195,14 +220,42 @@ export default function RoutinePage() {
     e.preventDefault();
     if (!templateName.trim()) return;
 
+    const fId = selectedFolderId || undefined;
+
     if (editingTemplate) {
-      storage.updateTemplate(editingTemplate.id, templateName, selectedExerciseIds);
+      storage.updateTemplate(editingTemplate.id, templateName, selectedExerciseIds, fId);
     } else {
-      storage.saveTemplate(templateName, selectedExerciseIds);
+      storage.saveTemplate(templateName, selectedExerciseIds, fId);
     }
 
     loadData();
     closeEditor();
+  };
+
+  // Handle Folder Save/Rename
+  const handleSaveFolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!folderName.trim()) return;
+
+    if (editingFolder) {
+      storage.updateFolder(editingFolder.id, folderName.trim());
+    } else {
+      storage.saveFolder(folderName.trim());
+    }
+
+    setFolderName("");
+    setEditingFolder(null);
+    setIsFolderModalOpen(false);
+    setBottomBarVisible(true);
+    loadData();
+  };
+
+  // Handle Folder Delete
+  const handleDeleteFolder = (id: string) => {
+    if (confirm("Sei sicuro di voler eliminare questa cartella? I template al suo interno non verranno cancellati, ma saranno spostati fuori.")) {
+      storage.deleteFolder(id);
+      loadData();
+    }
   };
 
   // Handle Template Delete
@@ -280,35 +333,149 @@ export default function RoutinePage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">I miei Template</h3>
-            <span className="text-[10px] text-primary font-bold">{templates.length} totali</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingFolder(null);
+                  setFolderName("");
+                  setIsFolderModalOpen(true);
+                  setBottomBarVisible(false);
+                }}
+                className="text-xs font-bold text-primary flex items-center gap-1 active:scale-95 transition-transform"
+                title="Nuova Cartella"
+              >
+                <FolderPlus size={14} /> + Cartella
+              </button>
+              <span className="text-[10px] text-gray-400 font-bold">{templates.length} totali</span>
+            </div>
           </div>
 
-          {templates.map((template) => {
-            const summary = getTemplateExercisesSummary(template);
+          {/* Grouped Folders List */}
+          {folders.map((folder) => {
+            const folderTemplates = templates.filter(t => t.folderId === folder.id);
+            const isOpen = openFolderIds[folder.id] !== false;
+
             return (
-              <div 
-                key={template.id} 
-                onClick={() => openDetail(template)}
-                className="glass-panel p-5 rounded-2xl border border-white/20 dark:border-white/5 shadow-sm active:scale-[0.98] transition-all cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h2 className="text-[19px] font-extrabold text-foreground leading-tight">{template.name}</h2>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mt-1">
-                      {template.exercises.length} Esercizi
+              <div key={folder.id} className="space-y-2.5">
+                {/* Folder Header */}
+                <div 
+                  onClick={() => setOpenFolderIds(prev => ({ ...prev, [folder.id]: !isOpen }))}
+                  className="flex items-center justify-between p-3.5 bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-2xl cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 active:scale-[0.99] transition-all"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {isOpen ? (
+                      <ChevronDown size={18} className="text-gray-400 shrink-0" />
+                    ) : (
+                      <ChevronRight size={18} className="text-gray-400 shrink-0" />
+                    )}
+                    <Folder size={18} className="text-primary shrink-0 fill-primary/10" />
+                    <span className="font-extrabold text-[15px] truncate text-foreground">{folder.name}</span>
+                    <span className="text-[10px] text-gray-400 font-bold bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded-full shrink-0">
+                      {folderTemplates.length}
                     </span>
                   </div>
-                  <span className="p-2 rounded-full bg-secondary/10 text-secondary shrink-0 active:scale-90 transition-transform">
-                    <Dumbbell size={16} fill="currentColor" />
-                  </span>
+
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingFolder(folder);
+                        setFolderName(folder.name);
+                        setIsFolderModalOpen(true);
+                        setBottomBarVisible(false);
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-primary active:scale-90 transition-colors"
+                      title="Rinomina Cartella"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFolder(folder.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 active:scale-90 transition-colors"
+                      title="Elimina Cartella"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-                
-                <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-3 line-clamp-2 leading-relaxed font-medium">
-                  {summary || "Nessun esercizio inserito. Tocca per visualizzare o iniziare!"}
-                </p>
+
+                {/* Folder Templates Content Accordion */}
+                {isOpen && (
+                  <div className="pl-4 border-l-2 border-primary/20 space-y-3 animate-in fade-in duration-200">
+                    {folderTemplates.map((template) => {
+                      const summary = getTemplateExercisesSummary(template);
+                      return (
+                        <div 
+                          key={template.id} 
+                          onClick={() => openDetail(template)}
+                          className="glass-panel p-4 rounded-xl border border-white/20 dark:border-white/5 shadow-sm active:scale-[0.98] transition-all cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h2 className="text-[16px] font-extrabold text-foreground leading-tight">{template.name}</h2>
+                              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider block mt-0.5">
+                                {template.exercises.length} Esercizi
+                              </span>
+                            </div>
+                            <span className="p-1.5 rounded-full bg-secondary/10 text-secondary shrink-0">
+                              <Dumbbell size={14} fill="currentColor" />
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-2 line-clamp-1 leading-normal font-medium">
+                            {summary || "Nessun esercizio inserito. Tocca per iniziare!"}
+                          </p>
+                        </div>
+                      );
+                    })}
+                    {folderTemplates.length === 0 && (
+                      <div className="text-center p-4 text-xs text-gray-400 italic bg-black/[0.02] dark:bg-white/[0.01] rounded-xl border border-dashed border-black/5 dark:border-white/5">
+                        Nessun template in questa cartella. Modifica una routine per assegnarla qui!
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
+
+          {/* Uncategorized / Single Templates */}
+          {templates.filter(t => !t.folderId).length > 0 && (
+            <div className="space-y-3 pt-2">
+              {folders.length > 0 && (
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">
+                  Template Singoli
+                </div>
+              )}
+              {templates.filter(t => !t.folderId).map((template) => {
+                const summary = getTemplateExercisesSummary(template);
+                return (
+                  <div 
+                    key={template.id} 
+                    onClick={() => openDetail(template)}
+                    className="glass-panel p-5 rounded-2xl border border-white/20 dark:border-white/5 shadow-sm active:scale-[0.98] transition-all cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h2 className="text-[19px] font-extrabold text-foreground leading-tight">{template.name}</h2>
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mt-1">
+                          {template.exercises.length} Esercizi
+                        </span>
+                      </div>
+                      <span className="p-2 rounded-full bg-secondary/10 text-secondary shrink-0 active:scale-90 transition-transform">
+                        <Dumbbell size={16} fill="currentColor" />
+                      </span>
+                    </div>
+                    
+                    <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-3 line-clamp-2 leading-relaxed font-medium">
+                      {summary || "Nessun esercizio inserito. Tocca per visualizzare o iniziare!"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {templates.length === 0 && (
             <div className="p-8 text-center text-gray-500 font-medium bg-black/5 dark:bg-white/5 rounded-2xl border border-dashed border-black/10 dark:border-white/10">
@@ -433,6 +600,21 @@ export default function RoutinePage() {
                     className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none font-medium"
                     required
                   />
+                </div>
+
+                {/* Selezione Cartella */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cartella</label>
+                  <select
+                    value={selectedFolderId}
+                    onChange={(e) => setSelectedFolderId(e.target.value)}
+                    className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none appearance-none font-semibold bg-white text-foreground"
+                  >
+                    <option value="">Nessuna cartella (Template Singolo)</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Selected Exercises Reordering & Deletion List */}
@@ -595,6 +777,55 @@ export default function RoutinePage() {
               className="w-full py-4 bg-primary hover:bg-primary/95 text-white font-bold text-base rounded-2xl shadow-lg shadow-primary/20 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none shrink-0"
             >
               Salva Routine
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 100% Fullscreen Native Modal for Creating/Editing Folder (iOS Style) */}
+      {isFolderModalOpen && (
+        <div className="fixed inset-0 z-[125] bg-[#f5f6fa] dark:bg-zinc-950 flex flex-col p-5 ios-modal-animate pb-safe overflow-hidden">
+          {/* Header */}
+          <div className="flex justify-between items-center pb-3 border-b border-black/5 dark:border-white/5 mb-4">
+            <h2 className="text-xl font-bold font-sans text-foreground">
+              {editingFolder ? "Rinomina Cartella" : "Crea Nuova Cartella"}
+            </h2>
+            <button 
+              type="button"
+              onClick={() => {
+                setIsFolderModalOpen(false);
+                setBottomBarVisible(true);
+              }}
+              className="p-2 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 active:scale-95 transition-all text-foreground"
+              aria-label="Chiudi"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveFolder} className="flex-1 flex flex-col justify-between max-w-md mx-auto w-full overflow-hidden">
+            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-4 pb-4">
+              <div className="glass-panel p-5 rounded-2xl flex flex-col gap-4 border border-black/5 dark:border-white/5 bg-white dark:bg-zinc-900 shadow-sm">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Nome Cartella</label>
+                  <input
+                    type="text"
+                    placeholder="Es. Scheda Cata 18, Nuova Programmazione..."
+                    value={folderName}
+                    onChange={(e) => setFolderName(e.target.value)}
+                    className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none font-medium text-foreground bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/45"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-4 bg-primary hover:bg-primary/95 text-white font-bold text-base rounded-2xl shadow-lg shadow-primary/20 active:scale-95 transition-all duration-200 mt-2"
+            >
+              {editingFolder ? "Salva Modifica" : "Crea Cartella"}
             </button>
           </form>
         </div>

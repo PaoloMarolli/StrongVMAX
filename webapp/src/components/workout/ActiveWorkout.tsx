@@ -65,11 +65,15 @@ export default function ActiveWorkout() {
   const [syncStatus, setSyncStatus] = useState<"syncing" | "success" | "error" | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState("");
 
+  // Keep alive in background state
+  const [keepAlive, setKeepAlive] = useState(false);
+
   // Rest Timer State
   const [restTimeLeft, setRestTimeLeft] = useState(0);
   const [isRestPaused, setIsRestPaused] = useState(false);
   const [restEndTime, setRestEndTime] = useState<number | null>(null);
   const [completedSets, setCompletedSets] = useState<Record<string, boolean>>({});
+  const [defaultRestSeconds, setDefaultRestSeconds] = useState(90);
 
   // RPE Picker State
   const [rpePickerState, setRpePickerState] = useState<{ exIdx: number; setIdx: number } | null>(null);
@@ -121,6 +125,33 @@ export default function ActiveWorkout() {
   const [newBarbellPreset, setNewBarbellPreset] = useState("Olimpico (20 kg)");
   const [newCustomBarbellText, setNewCustomBarbellText] = useState("");
 
+  const [hasEntered, setHasEntered] = useState(false);
+
+  // Trigger enter slide-up transition shortly after active workout mounts/starts
+  useEffect(() => {
+    if (isActive) {
+      const timer = setTimeout(() => setHasEntered(true), 50);
+      return () => clearTimeout(timer);
+    } else {
+      setHasEntered(false);
+    }
+  }, [isActive]);
+
+  // Lock body scroll when active workout modal is expanded to prevent background scrolling
+  useEffect(() => {
+    if (isActive && !isMinimized) {
+      document.body.style.overflow = "hidden";
+      document.body.style.height = "100vh";
+    } else {
+      document.body.style.overflow = "";
+      document.body.style.height = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.height = "";
+    };
+  }, [isActive, isMinimized]);
+
   useEffect(() => {
     if (isActive) {
       setExercisesCatalog(storage.getExercises());
@@ -128,6 +159,16 @@ export default function ActiveWorkout() {
       setTimeInputs({});
       setActiveKeypad(null);
       setDragOffset(0);
+      
+      // Load custom rest timer preference from localStorage
+      if (typeof window !== "undefined") {
+        const storedRest = localStorage.getItem("default_rest_seconds");
+        if (storedRest) {
+          setDefaultRestSeconds(parseInt(storedRest, 10) || 90);
+        }
+        const storedKeepAlive = localStorage.getItem("keep_alive_in_background") === "true";
+        setKeepAlive(storedKeepAlive);
+      }
     }
   }, [isActive]);
 
@@ -176,17 +217,20 @@ export default function ActiveWorkout() {
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
-    if (restTimeLeft > 0 && !isRestPaused && restEndTime) {
+    if (restEndTime && !isRestPaused) {
       const updateRestTimer = () => {
         const now = Date.now();
         const diff = Math.max(0, Math.ceil((restEndTime - now) / 1000));
-        setRestTimeLeft(diff);
         
+        // Only update if greater than zero, otherwise handle completion
         if (diff <= 0) {
+          setRestTimeLeft(0);
           setRestingSetKey(null);
           setRestEndTime(null);
-          gymChime.stopSilence(); // Stop background audio carrier
-          gymChime.play(); // Play the high-fidelity sound cue!
+          gymChime.stopSilence(); // Stopped rest carrier wave
+          gymChime.play(); // Play the chime explicitly!
+        } else {
+          setRestTimeLeft(diff);
         }
       };
 
@@ -206,8 +250,10 @@ export default function ActiveWorkout() {
         window.removeEventListener("visibilitychange", syncOnWakeup);
       };
     }
-    return () => clearInterval(interval);
-  }, [restTimeLeft, isRestPaused, restEndTime]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRestPaused, restEndTime]);
 
   // Drag down to minimize sheet handlers
   const handleHeaderTouchStart = (e: React.TouchEvent) => {
@@ -318,6 +364,26 @@ export default function ActiveWorkout() {
       });
       return copy;
     });
+
+    const shiftDictionary = <T,>(setter: React.Dispatch<React.SetStateAction<Record<string, T>>>) => {
+      setter(prev => {
+        const next = { ...prev };
+        delete next[`${exerciseIndex}_${setIndex}`];
+        for (let i = setIndex + 1; i <= 50; i++) {
+          const oldKey = `${exerciseIndex}_${i}`;
+          const newKey = `${exerciseIndex}_${i - 1}`;
+          if (next[oldKey] !== undefined) {
+            next[newKey] = next[oldKey];
+            delete next[oldKey];
+          }
+        }
+        return next;
+      });
+    };
+
+    shiftDictionary(setWeightInputs);
+    shiftDictionary(setTimeInputs);
+    shiftDictionary(setCompletedSets);
   };
 
   const getWeightStep = (equipment: string): number => {
@@ -555,19 +621,64 @@ export default function ActiveWorkout() {
         }
       }
 
-      // Start rest timer (90 seconds default) with background-resilient end timestamp
-      const duration = 90;
+      // Start rest timer with background-resilient end timestamp
+      const duration = defaultRestSeconds;
       setRestTimeLeft(duration);
       setIsRestPaused(false);
       setRestEndTime(Date.now() + duration * 1000);
       setRestingSetKey(key); // Set active resting set
-      gymChime.startSilence(); // Start background wave to keep JS awake
+      gymChime.startSilence(duration); // Start background wave and schedule background chime!
     } else {
       if (restingSetKey === key) {
         setRestingSetKey(null);
         setRestTimeLeft(0);
         setRestEndTime(null);
         gymChime.stopSilence(); // Stop background wave
+      }
+    }
+  };
+
+  const adjustRestTimer = (seconds: number) => {
+    setRestTimeLeft((prev) => {
+      const nextVal = Math.max(0, prev + seconds);
+      
+      if (nextVal <= 0) {
+        setRestEndTime(null);
+        setRestingSetKey(null);
+        gymChime.stopSilence();
+        return 0;
+      }
+
+      if (!isRestPaused) {
+        setRestEndTime(Date.now() + nextVal * 1000);
+        gymChime.startSilence(nextVal);
+      }
+
+      return nextVal;
+    });
+
+    // Save adjusted duration as the new default rest duration
+    setDefaultRestSeconds((prev) => {
+      const nextDefault = Math.max(15, prev + seconds);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("default_rest_seconds", nextDefault.toString());
+      }
+      return nextDefault;
+    });
+  };
+
+  const toggleKeepAlive = () => {
+    const nextVal = !keepAlive;
+    setKeepAlive(nextVal);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("keep_alive_in_background", nextVal.toString());
+      if (restTimeLeft > 0 && !isRestPaused && restEndTime) {
+        if (nextVal) {
+          const timeLeft = Math.max(0, Math.ceil((restEndTime - Date.now()) / 1000));
+          gymChime.startSilence(timeLeft);
+        } else {
+          gymChime.stopSilence();
+        }
       }
     }
   };
@@ -845,15 +956,18 @@ export default function ActiveWorkout() {
       )}
 
       <div 
-        className="fixed inset-0 z-[100] flex flex-col ios-modal-animate bg-white/40 dark:bg-black/60 backdrop-blur-2xl"
+        className="fixed inset-0 z-[100] flex flex-col bg-white/40 dark:bg-black/60 backdrop-blur-2xl"
         style={{
-          transform: isMinimized 
-            ? "translateY(100%)" 
-            : dragOffset > 0 
-              ? `translateY(${dragOffset}px)` 
-              : "translateY(0)",
+          transform: !hasEntered
+            ? "translateY(100%)"
+            : isMinimized 
+              ? "translateY(100%)" 
+              : dragOffset > 0 
+                ? `translateY(${dragOffset}px)` 
+                : "translateY(0)",
           transition: isDragging.current ? "none" : "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease",
           pointerEvents: isMinimized ? "none" : "auto",
+          visibility: (isMinimized && dragOffset === 0) ? "hidden" : "visible",
         }}
       >
       {/* Grab-Handle Header with Drag-to-Minimize gesture */}
@@ -1140,16 +1254,41 @@ export default function ActiveWorkout() {
                       if (restingSetKey === setKey && restTimeLeft > 0) {
                         const restBar = (
                           <div key={`${setIdx}-rest`} className="animate-in slide-in-from-top-1 duration-300 py-1">
-                            <div className="relative w-full h-8 bg-black/5 dark:bg-white/5 rounded-xl overflow-hidden shadow-inner border border-black/5 dark:border-white/5 flex items-center p-0.5">
+                            <div className="relative w-full h-8 bg-black/5 dark:bg-white/5 rounded-xl overflow-hidden shadow-inner border border-black/5 dark:border-white/5 flex items-center justify-between p-0.5">
                               {/* Glowing Gradient Collapsing Rest Progress Bar */}
                               <div 
-                                className="absolute top-0.5 bottom-0.5 left-0.5 bg-gradient-to-r from-primary to-blue-500 rounded-lg shadow-[0_0_12px_rgba(0,87,255,0.35)] transition-all duration-1000 ease-linear"
-                                style={{ width: `calc(${(restTimeLeft / 90) * 100}% - 4px)` }}
+                                className="absolute top-0.5 bottom-0.5 left-0.5 bg-gradient-to-r from-primary to-blue-500 rounded-lg shadow-[0_0_12px_rgba(0,87,255,0.35)] transition-all duration-1000 ease-linear z-0"
+                                style={{ width: `calc(${(restTimeLeft / defaultRestSeconds) * 100}% - 4px)` }}
                               />
+                              
+                              {/* Left Adjuster */}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  adjustRestTimer(-15);
+                                }}
+                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 dark:bg-black/20 hover:bg-white/30 text-zinc-900 dark:text-white flex items-center justify-center text-[10px] font-black active:scale-90 transition-transform ml-0.5 border border-white/10"
+                                title="Sottrai 15s"
+                              >
+                                -15s
+                              </button>
+
                               {/* Counter in MM:SS (Super readable, high contrast text) */}
-                              <div className="absolute inset-0 flex items-center justify-center text-xs font-extrabold text-zinc-900 dark:text-white font-sans tracking-wider z-10">
+                              <div className="absolute inset-0 flex items-center justify-center text-xs font-extrabold text-zinc-900 dark:text-white font-sans tracking-wider z-10 pointer-events-none">
                                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:{(restTimeLeft % 60).toString().padStart(2, "0")}
                               </div>
+
+                              {/* Right Adjuster */}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  adjustRestTimer(15);
+                                }}
+                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 dark:bg-black/20 hover:bg-white/30 text-zinc-900 dark:text-white flex items-center justify-center text-[10px] font-black active:scale-90 transition-transform mr-0.5 border border-white/10"
+                                title="Aggiungi 15s"
+                              >
+                                +15s
+                              </button>
                             </div>
                           </div>
                         );
@@ -1167,6 +1306,27 @@ export default function ActiveWorkout() {
               >
                 <Plus size={14} /> Serie
               </button>
+
+              {/* Sensazioni / Feedback Esercizio */}
+              <div className="mt-3.5 pt-3 border-t border-black/5 dark:border-white/5 flex flex-col gap-1.5">
+                <label className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-1">
+                  Sensazioni Esercizio (Feedback Atleta)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Scrivi come ti è sembrato l'esercizio (es. fastidio spalla, RPE target, feedback...)"
+                  value={ex.feedback || ""}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setActiveExercises((prev) => {
+                      const copy = JSON.parse(JSON.stringify(prev));
+                      copy[exIdx].feedback = text;
+                      return copy;
+                    });
+                  }}
+                  className="glass-input w-full px-3 py-2 rounded-xl text-[9px] placeholder:text-[9px] outline-none font-medium resize-none text-zinc-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-zinc-950 border border-transparent focus:border-primary/30 transition-all duration-200"
+                />
+              </div>
             </div>
           );
         })}
@@ -1182,14 +1342,14 @@ export default function ActiveWorkout() {
 
       {/* Rest Timer Panel */}
       {restTimeLeft > 0 && (
-        <div className="glass-nav absolute bottom-0 left-0 right-0 p-4 flex items-center justify-between pb-safe z-30 shadow-[0_-8px_30px_rgb(0,0,0,0.1)] border-t border-white/20">
+        <div className="glass-nav fixed bottom-0 left-0 right-0 p-4 flex items-center justify-between pb-safe z-[105] shadow-[0_-8px_30px_rgb(0,0,0,0.15)] border-t border-white/20">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => {
                 if (isRestPaused) {
                   setRestEndTime(Date.now() + restTimeLeft * 1000);
                   setIsRestPaused(false);
-                  gymChime.startSilence(); // Keep alive
+                  gymChime.startSilence(restTimeLeft); // Keep alive and reschedule chime!
                 } else {
                   setRestEndTime(null);
                   setIsRestPaused(true);
@@ -1201,13 +1361,43 @@ export default function ActiveWorkout() {
               {isRestPaused ? <Play size={18} fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
             </button>
             <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Tempo di Riposo</span>
+              <button 
+                onClick={toggleKeepAlive}
+                className="text-[10px] text-gray-500 font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-transform"
+                title="Tocca per cambiare modalità timer"
+              >
+                <span>Tempo di Riposo</span>
+                {keepAlive ? (
+                  <span className="text-primary text-[8px] bg-primary/10 px-1 rounded-full border border-primary/20 leading-none py-0.5 font-sans">BG 🔔</span>
+                ) : (
+                  <span className="text-green-600 text-[8px] bg-green-500/10 px-1 rounded-full border border-green-500/20 leading-none py-0.5 font-sans">NO-PAUSE 🎧</span>
+                )}
+              </button>
               <span className="font-mono font-bold text-xl leading-none text-secondary mt-0.5">
                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:
                 {(restTimeLeft % 60).toString().padStart(2, "0")}
               </span>
             </div>
           </div>
+
+          {/* Quick glassmorphic time adjusters */}
+          <div className="flex items-center gap-1.5 bg-black/5 dark:bg-white/5 rounded-full p-1 border border-black/5 dark:border-white/5">
+            <button 
+              onClick={() => adjustRestTimer(-15)}
+              className="w-9 h-9 rounded-full bg-white/40 dark:bg-black/30 hover:bg-white/60 dark:hover:bg-black/50 text-zinc-800 dark:text-white flex items-center justify-center text-xs font-black shadow-sm active:scale-90 transition-transform"
+              title="Sottrai 15 secondi"
+            >
+              -15s
+            </button>
+            <button 
+              onClick={() => adjustRestTimer(15)}
+              className="w-9 h-9 rounded-full bg-white/40 dark:bg-black/30 hover:bg-white/60 dark:hover:bg-black/50 text-zinc-800 dark:text-white flex items-center justify-center text-xs font-black shadow-sm active:scale-90 transition-transform"
+              title="Aggiungi 15 secondi"
+            >
+              +15s
+            </button>
+          </div>
+
           <button 
             onClick={() => {
               setRestTimeLeft(0);
@@ -1539,7 +1729,7 @@ export default function ActiveWorkout() {
                 </div>
                 <h3 className="text-base font-bold text-primary mt-2">Sincronizzazione</h3>
                 <p className="text-xs text-gray-500 max-w-[240px]">
-                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 18&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
+                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 19&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
                 </p>
               </>
             )}
