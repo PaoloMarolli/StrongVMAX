@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { Check, Play, Pause, FastForward, Plus, Trash2, X } from "lucide-react";
+import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History } from "lucide-react";
 import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
 import { useSession, signIn } from "next-auth/react";
 import { gymChime } from "@/utils/audio";
@@ -28,21 +28,33 @@ function secondsToHHMMSS(seconds: number): string {
 
 function hhmmssToSeconds(str: string): number {
   if (!str) return 0;
-  const clean = str.replace(/[^0-9:]/g, "");
-  const parts = clean.split(":");
+  const parts = str.split(":").map(p => parseInt(p, 10) || 0);
   if (parts.length === 3) {
-    const hrs = parseInt(parts[0], 10) || 0;
-    const mins = parseInt(parts[1], 10) || 0;
-    const secs = parseInt(parts[2], 10) || 0;
-    return hrs * 3600 + mins * 60 + secs;
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
   } else if (parts.length === 2) {
-    const mins = parseInt(parts[0], 10) || 0;
-    const secs = parseInt(parts[1], 10) || 0;
-    return mins * 60 + secs;
+    return parts[0] * 60 + parts[1];
   } else if (parts.length === 1) {
-    return parseInt(parts[0], 10) || 0;
+    return parts[0];
   }
   return 0;
+}
+
+function SpotifyLogo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.503 17.306c-.22.36-.68.476-1.04.256-2.855-1.745-6.45-2.14-10.684-1.172-.406.094-.813-.162-.907-.568-.094-.406.162-.813.568-.907 4.636-1.06 8.605-.61 11.796 1.34.36.22.476.68.256 1.04zm1.47-3.267c-.276.446-.86.586-1.306.31-3.267-2.007-8.248-2.59-12.115-1.416-.5.152-1.026-.13-1.178-.63-.15-.5.13-1.026.63-1.178 4.417-1.34 9.907-.69 13.659 1.61.446.276.586.86.31 1.306zm.127-3.41c-3.918-2.327-10.38-2.542-14.137-1.402-.6.182-1.232-.163-1.414-.764-.182-.6.163-1.232.764-1.414 4.312-1.308 11.446-1.05 15.965 1.63.54.32.72 1.02.4 1.56-.32.54-1.02.72-1.56.402z" />
+    </svg>
+  );
+}
+
+function GoogleSheetsLogo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" fill="#0F9D58" />
+      <path d="M14 3v6h7L14 3z" fill="#87CEAC" />
+      <path d="M7 11h10v2H7v-2zm0 4h10v2H7v-2zm0-8h5v2H7V7z" fill="#FFFFFF" />
+    </svg>
+  );
 }
 
 export default function ActiveWorkout() {
@@ -50,6 +62,7 @@ export default function ActiveWorkout() {
     isActive, 
     durationSeconds, 
     workoutName,
+    setWorkoutName,
     activeExercises, 
     setActiveExercises,
     finishWorkout, 
@@ -67,6 +80,13 @@ export default function ActiveWorkout() {
 
   // Keep alive in background state
   const [keepAlive, setKeepAlive] = useState(false);
+
+  // Edit Workout Name Modal State
+  const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
+  const [editedWorkoutName, setEditedWorkoutName] = useState("");
+
+  // Exercise History Modal State
+  const [selectedHistoryExercise, setSelectedHistoryExercise] = useState<{ id: string; name: string } | null>(null);
 
   // Rest Timer State
   const [restTimeLeft, setRestTimeLeft] = useState(0);
@@ -184,6 +204,9 @@ export default function ActiveWorkout() {
     if (isActive) {
       const unlockAudio = () => {
         gymChime.unlock();
+        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission().catch(() => {});
+        }
         window.removeEventListener("click", unlockAudio);
         window.removeEventListener("touchstart", unlockAudio);
       };
@@ -229,6 +252,17 @@ export default function ActiveWorkout() {
           setRestEndTime(null);
           gymChime.stopSilence(); // Stopped rest carrier wave
           gymChime.play(); // Play the chime explicitly!
+
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            try {
+              new Notification("Tempo di Riposo Completato! 🔔", {
+                body: "Il tuo riposo è terminato, è ora di iniziare la serie successiva!",
+                silent: false,
+              });
+            } catch {
+              // ignore notification errors
+            }
+          }
         } else {
           setRestTimeLeft(diff);
         }
@@ -593,32 +627,44 @@ export default function ActiveWorkout() {
     if (isNowComplete) {
       // Auto-populate empty sets with inherited values
       const currentSet = activeExercises[exIdx].sets[setIdx];
-      if (currentSet.weight === 0 && currentSet.reps === 0) {
-        const { inheritedWeight, inheritedReps } = getInheritedValues(exIdx, setIdx);
-        if (inheritedWeight > 0 || inheritedReps > 0) {
-          const formattedWeight = inheritedWeight === 0 ? "" : inheritedWeight.toString().replace(".", ",");
-          setWeightInputs((prev) => ({
+      const { inheritedWeight, inheritedReps } = getInheritedValues(exIdx, setIdx);
+      let updatedWeight = currentSet.weight;
+      let updatedReps = currentSet.reps;
+      let needsUpdate = false;
+
+      if (currentSet.weight === 0 && inheritedWeight > 0) {
+        updatedWeight = inheritedWeight;
+        needsUpdate = true;
+        
+        const formattedWeight = inheritedWeight.toString().replace(".", ",");
+        setWeightInputs((prev) => ({
+          ...prev,
+          [key]: formattedWeight,
+        }));
+      }
+
+      if (currentSet.reps === 0 && inheritedReps > 0) {
+        updatedReps = inheritedReps;
+        needsUpdate = true;
+
+        const foundEx = exercisesCatalog.find(c => c.id === activeExercises[exIdx].exerciseId);
+        const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
+        if (isDuration) {
+          const formattedTime = secondsToHHMMSS(inheritedReps);
+          setTimeInputs((prev) => ({
             ...prev,
-            [key]: formattedWeight,
+            [key]: formattedTime,
           }));
-
-          const foundEx = exercisesCatalog.find(c => c.id === activeExercises[exIdx].exerciseId);
-          const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
-          if (isDuration) {
-            const formattedTime = secondsToHHMMSS(inheritedReps);
-            setTimeInputs((prev) => ({
-              ...prev,
-              [key]: formattedTime,
-            }));
-          }
-
-          setActiveExercises((prev) => {
-            const copy = JSON.parse(JSON.stringify(prev));
-            copy[exIdx].sets[setIdx].weight = inheritedWeight;
-            copy[exIdx].sets[setIdx].reps = inheritedReps;
-            return copy;
-          });
         }
+      }
+
+      if (needsUpdate) {
+        setActiveExercises((prev) => {
+          const copy = JSON.parse(JSON.stringify(prev));
+          copy[exIdx].sets[setIdx].weight = updatedWeight;
+          copy[exIdx].sets[setIdx].reps = updatedReps;
+          return copy;
+        });
       }
 
       // Start rest timer with background-resilient end timestamp
@@ -683,21 +729,24 @@ export default function ActiveWorkout() {
     }
   };
 
-  const getExerciseVolumeDelta = (exerciseId: string, currentVolume: number): { percent: string; isPositive: boolean; isNeutral: boolean } | null => {
+  const getExerciseVolumeDelta = (exerciseId: string, currentVolume: number, isDuration = false, exerciseName = ""): { percent: string; isPositive: boolean; isNeutral: boolean } | null => {
     const sessions = storage.getHistory();
-    // Search backward for the most recent session containing this exercise
-    for (let i = sessions.length - 1; i >= 0; i--) {
+    // Search from newest to oldest for the most recent session containing this exercise
+    for (let i = 0; i < sessions.length; i++) {
       const session = sessions[i];
-      const foundEx = session.exercises.find((e) => e.exerciseId === exerciseId);
-      if (foundEx) {
-        const prevVol = foundEx.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type), 0);
+      const foundEx = session.exercises.find((e) => 
+        e.exerciseId === exerciseId || 
+        (exerciseName && e.exerciseName.toLowerCase().trim() === exerciseName.toLowerCase().trim())
+      );
+      if (foundEx && foundEx.sets && foundEx.sets.length > 0) {
+        const prevVol = foundEx.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0);
         if (prevVol === 0) return null;
         const diff = currentVolume - prevVol;
         const pct = (diff / prevVol) * 100;
         return {
           percent: pct >= 0 ? `+${pct.toFixed(0)}%` : `${pct.toFixed(0)}%`,
           isPositive: pct > 0,
-          isNeutral: pct === 0,
+          isNeutral: Math.abs(pct) < 0.1,
         };
       }
     }
@@ -989,8 +1038,56 @@ export default function ActiveWorkout() {
           </button>
           
           <div className="flex flex-col items-center">
-            <span className="text-primary font-extrabold text-base leading-none tracking-tight">{workoutName}</span>
-            <span className="text-secondary font-mono text-sm font-bold mt-1 bg-black/5 dark:bg-white/5 px-2.5 py-0.5 rounded-full">{formatTime(durationSeconds)}</span>
+            <button 
+              type="button"
+              onClick={() => {
+                setEditedWorkoutName(workoutName);
+                setIsEditNameModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-primary font-extrabold text-base leading-none tracking-tight active:scale-95 transition-transform group cursor-pointer"
+              title="Tocca per modificare il nome dell'allenamento / Settimana"
+            >
+              <span>{workoutName}</span>
+              <Pencil size={12} className="text-gray-400 group-hover:text-primary transition-colors" />
+            </button>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-secondary font-mono text-sm font-bold bg-black/5 dark:bg-white/5 px-2.5 py-0.5 rounded-full">{formatTime(durationSeconds)}</span>
+              
+              {/* App Shortcuts: Spotify & Google Sheets */}
+              <div className="flex items-center gap-1.5">
+                <a
+                  href="spotify:"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.location.href = "spotify:";
+                    setTimeout(() => {
+                      window.open("https://open.spotify.com", "_blank");
+                    }, 500);
+                  }}
+                  className="w-6.5 h-6.5 rounded-full bg-[#1DB954]/15 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 flex items-center justify-center text-[#1DB954] active:scale-90 transition-all cursor-pointer shadow-sm"
+                  title="Apri Spotify"
+                  aria-label="Apri Spotify"
+                >
+                  <SpotifyLogo size={14} />
+                </a>
+
+                <a
+                  href="googlesheets:"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.location.href = "googlesheets:";
+                    setTimeout(() => {
+                      window.open("https://docs.google.com/spreadsheets", "_blank");
+                    }, 500);
+                  }}
+                  className="w-6.5 h-6.5 rounded-full bg-[#0F9D58]/15 hover:bg-[#0F9D58]/25 border border-[#0F9D58]/30 flex items-center justify-center active:scale-90 transition-all cursor-pointer shadow-sm"
+                  title="Apri Scheda Cata 19 su Google Sheets"
+                  aria-label="Apri Google Sheets"
+                >
+                  <GoogleSheetsLogo size={14} />
+                </a>
+              </div>
+            </div>
           </div>
           
           <button 
@@ -1012,7 +1109,17 @@ export default function ActiveWorkout() {
             <div key={ex.exerciseId} className="glass-panel rounded-2xl overflow-hidden border border-white/20 dark:border-white/5">
               <div className="p-4 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-white/10 dark:bg-black/10">
                 <div>
-                  <h2 className="text-[17px] font-extrabold text-primary">{ex.exerciseName}</h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
+                    className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
+                    title="Tocca per vedere lo storico delle settimane precedenti"
+                  >
+                    <h2 className="text-[17px] font-extrabold text-primary group-hover:underline">{ex.exerciseName}</h2>
+                    <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20 flex items-center gap-0.5 group-hover:bg-primary/20 transition-all uppercase tracking-wider">
+                      <History size={11} /> Storico
+                    </span>
+                  </button>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5 items-center">
                     {isDuration ? (
                       <>
@@ -1027,7 +1134,7 @@ export default function ActiveWorkout() {
                           Volume: <span className="font-semibold text-primary">{ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0)} kg</span>
                           {(() => {
                             const currentVolume = ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0);
-                            const delta = getExerciseVolumeDelta(ex.exerciseId, currentVolume);
+                            const delta = getExerciseVolumeDelta(ex.exerciseId, currentVolume, isDuration, ex.exerciseName);
                             if (!delta) return null;
                             return (
                               <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.2 rounded font-sans uppercase leading-none ${
@@ -1309,11 +1416,11 @@ export default function ActiveWorkout() {
 
               {/* Sensazioni / Feedback Esercizio */}
               <div className="mt-3.5 pt-3 border-t border-black/5 dark:border-white/5 flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-1">
+                <label className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-1">
                   Sensazioni Esercizio (Feedback Atleta)
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   placeholder="Scrivi come ti è sembrato l'esercizio (es. fastidio spalla, RPE target, feedback...)"
                   value={ex.feedback || ""}
                   onChange={(e) => {
@@ -1324,7 +1431,7 @@ export default function ActiveWorkout() {
                       return copy;
                     });
                   }}
-                  className="glass-input w-full px-3 py-2 rounded-xl text-[9px] placeholder:text-[9px] outline-none font-medium resize-none text-zinc-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-zinc-950 border border-transparent focus:border-primary/30 transition-all duration-200"
+                  className="glass-input w-full px-4 py-3 rounded-xl text-[16px] placeholder:text-[14px] outline-none font-medium resize-none text-zinc-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-zinc-950 border border-transparent focus:border-primary/30 transition-all duration-200"
                 />
               </div>
             </div>
@@ -1364,13 +1471,13 @@ export default function ActiveWorkout() {
               <button 
                 onClick={toggleKeepAlive}
                 className="text-[10px] text-gray-500 font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-transform"
-                title="Tocca per cambiare modalità timer"
+                title="Suoneria attiva: Spotify continua a suonare senza interruzioni"
               >
                 <span>Tempo di Riposo</span>
                 {keepAlive ? (
-                  <span className="text-primary text-[8px] bg-primary/10 px-1 rounded-full border border-primary/20 leading-none py-0.5 font-sans">BG 🔔</span>
+                  <span className="text-primary text-[8px] bg-primary/10 px-1 rounded-full border border-primary/20 leading-none py-0.5 font-sans">🔔 SPOTIFY OK</span>
                 ) : (
-                  <span className="text-green-600 text-[8px] bg-green-500/10 px-1 rounded-full border border-green-500/20 leading-none py-0.5 font-sans">NO-PAUSE 🎧</span>
+                  <span className="text-gray-400 text-[8px] bg-gray-500/10 px-1 rounded-full border border-gray-500/20 leading-none py-0.5 font-sans">SILENZIOSO 🔇</span>
                 )}
               </button>
               <span className="font-mono font-bold text-xl leading-none text-secondary mt-0.5">
@@ -1780,6 +1887,179 @@ export default function ActiveWorkout() {
           </div>
         </div>
       )}
+
+      {/* Edit Workout Name Modal */}
+      {isEditNameModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="glass-panel w-full max-w-sm rounded-3xl p-6 flex flex-col gap-4 border border-white/20 dark:border-white/10 shadow-2xl bg-white/95 dark:bg-zinc-900/95">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-base text-foreground">Modifica Nome Workout</h3>
+              <button 
+                onClick={() => setIsEditNameModalOpen(false)}
+                className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 active:scale-95 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Personalizza il nome o la settimana dell&apos;allenamento (es. &ldquo;Petto Dorso W2&rdquo;):
+            </p>
+
+            <input
+              type="text"
+              value={editedWorkoutName}
+              onChange={(e) => setEditedWorkoutName(e.target.value)}
+              placeholder="Es. Petto Dorso W2..."
+              className="glass-input w-full px-4 py-3 rounded-xl text-base outline-none font-semibold bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10"
+              autoFocus
+            />
+
+            {/* Quick Week Chips */}
+            <div className="flex flex-col gap-1.5 pt-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase">Seleziona Settimana:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8"].map((week) => {
+                  const updateWeekName = () => {
+                    let base = editedWorkoutName.trim();
+                    if (/\bW\d+\b/i.test(base)) {
+                      base = base.replace(/\bW\d+\b/i, week);
+                    } else {
+                      base = base ? `${base} ${week}` : week;
+                    }
+                    setEditedWorkoutName(base);
+                  };
+                  const isActiveWeek = editedWorkoutName.includes(week);
+                  return (
+                    <button
+                      key={week}
+                      type="button"
+                      onClick={updateWeekName}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                        isActiveWeek
+                          ? "bg-primary text-white shadow-sm"
+                          : "bg-black/5 dark:bg-white/10 hover:bg-black/10 text-foreground"
+                      }`}
+                    >
+                      {week}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setIsEditNameModalOpen(false)}
+                className="flex-1 py-3 rounded-xl text-xs font-bold bg-black/5 hover:bg-black/10 text-gray-500 dark:text-gray-400"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editedWorkoutName.trim()) {
+                    setWorkoutName(editedWorkoutName.trim());
+                  }
+                  setIsEditNameModalOpen(false);
+                }}
+                className="flex-1 py-3 rounded-xl text-xs font-bold bg-primary text-white shadow-md shadow-primary/20 active:scale-95"
+              >
+                Salva Nome
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exercise History Sheet Modal */}
+      {selectedHistoryExercise && (() => {
+        const historySessions = storage.getHistory().filter((session) =>
+          session.exercises.some((e) => 
+            e.exerciseId === selectedHistoryExercise.id || 
+            e.exerciseName.toLowerCase().trim() === selectedHistoryExercise.name.toLowerCase().trim()
+          )
+        );
+
+        return (
+          <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="glass-panel w-full max-w-lg rounded-t-3xl p-6 h-[80vh] flex flex-col gap-4 ios-modal-animate border-x-0 border-b-0 bg-white dark:bg-zinc-950 pb-safe">
+              {/* Header */}
+              <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <History size={18} className="text-primary" />
+                    <h3 className="font-bold text-lg text-foreground">Storico Esercizio</h3>
+                  </div>
+                  <p className="text-xs text-primary font-bold mt-0.5">{selectedHistoryExercise.name}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedHistoryExercise(null)}
+                  className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 active:scale-95 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* History List */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                {historySessions.length > 0 ? (
+                  historySessions.map((session) => {
+                    const matchedEx = session.exercises.find((e) =>
+                      e.exerciseId === selectedHistoryExercise.id ||
+                      e.exerciseName.toLowerCase().trim() === selectedHistoryExercise.name.toLowerCase().trim()
+                    );
+                    if (!matchedEx) return null;
+
+                    const dateFormatted = new Date(session.date).toLocaleDateString("it-IT", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    });
+
+                    return (
+                      <div key={session.id} className="p-4 rounded-2xl border border-black/5 dark:border-white/10 bg-black/5 dark:bg-white/5 flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs border-b border-black/5 dark:border-white/5 pb-2">
+                          <span className="font-extrabold text-primary">{session.name}</span>
+                          <span className="text-gray-400 font-medium capitalize">{dateFormatted}</span>
+                        </div>
+
+                        <div className="space-y-1 text-xs">
+                          {matchedEx.sets.map((set, idx) => (
+                            <div key={idx} className="flex justify-between items-center py-1 px-2 rounded-lg bg-white/40 dark:bg-black/30">
+                              <span className="font-bold text-gray-500">Serie {set.setOrder || idx + 1} {set.type && set.type !== "N" ? `(${set.type})` : ""}</span>
+                              <div className="flex items-center gap-3">
+                                <span className="font-extrabold text-foreground">{set.weight} kg × {set.reps} {set.reps === 1 ? "rep" : "reps"}</span>
+                                {set.rpe && set.rpe > 0 && (
+                                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20">
+                                    @{set.rpe.toString().replace(".", ",")}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {matchedEx.feedback && (
+                          <div className="mt-1 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 italic">
+                            &ldquo;{matchedEx.feedback}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-8 text-center text-gray-400 text-sm">
+                    Nessuna esecuzione precedente registrata nel tuo storico per {selectedHistoryExercise.name}.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   </>
 );

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2 } from "lucide-react";
 import { useWorkout } from "@/context/WorkoutContext";
 import { storage, WorkoutTemplate, WorkoutFolder, Exercise, WorkoutExercise } from "@/utils/storage";
+import ThemeQuickToggle from "@/components/ThemeQuickToggle";
 
 export default function RoutinePage() {
   const { startWorkout, setBottomBarVisible, isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
@@ -311,15 +312,18 @@ export default function RoutinePage() {
     <>
       <div className={`flex flex-col h-full w-full relative z-0 ${pageAnimationClass} ${isModalActive ? "apple-page-scaled" : ""}`}>
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
-        <h1 className="text-3xl font-black font-sans tracking-tight">Routine</h1>
-        <button 
-          onClick={openCreator}
-          className="p-2 text-primary active:scale-95 transition-transform" 
-          aria-label="Nuovo template"
-        >
-          <Plus size={24} />
-        </button>
-      </header>
+          <h1 className="text-3xl font-black font-sans tracking-tight">Routine</h1>
+          <div className="flex items-center gap-1">
+            <ThemeQuickToggle />
+            <button 
+              onClick={openCreator}
+              className="p-2 text-primary active:scale-95 transition-transform" 
+              aria-label="Nuovo template"
+            >
+              <Plus size={24} />
+            </button>
+          </div>
+        </header>
       
       <div className="p-4 flex-1 overflow-y-auto pb-20">
         <button 

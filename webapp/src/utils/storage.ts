@@ -287,12 +287,8 @@ export const storage = {
 };
 
 export function calculateSetVolume(weight: number, reps: number, type?: string, isDuration = false): number {
-  if (isDuration) return weight;
+  if (isDuration) return weight > 0 ? weight : reps;
   const sType = type || "N";
-  if (sType === "W") return 0;
-  let effectiveReps = reps;
-  if (sType === "F") {
-    effectiveReps = Math.max(0, reps - 1);
-  }
-  return weight * effectiveReps;
+  if (sType === "W") return 0; // Warmup sets do not count toward effective working volume
+  return weight * reps;
 }

@@ -7,6 +7,8 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useSession, signOut, signIn } from "next-auth/react";
+import ThemeToggle from "@/components/ThemeToggle";
+import ThemeQuickToggle from "@/components/ThemeQuickToggle";
 
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -515,7 +517,8 @@ export default function HistoryPage() {
         <header className="glass-header flex justify-between items-center p-4 sticky top-0 z-10">
           <h1 className="text-3xl font-black font-sans tracking-tight">Storico</h1>
           
-          <div>
+          <div className="flex items-center gap-2">
+            <ThemeQuickToggle />
             <button
               onClick={() => setIsProfileOpen(true)}
               className="w-9 h-9 rounded-full overflow-hidden border border-white/30 dark:border-white/10 ring-2 ring-primary/20 active:scale-95 transition-all flex items-center justify-center bg-black/5 dark:bg-white/5"
@@ -1180,6 +1183,9 @@ export default function HistoryPage() {
                 </p>
               </div>
             </div>
+
+            {/* Apple Theme Selector */}
+            <ThemeToggle />
 
             {/* Status indicators */}
             <div className="space-y-3">

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import BottomTabBar from "@/components/BottomTabBar";
 import { WorkoutProvider } from "@/context/WorkoutContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import ActiveWorkout from "@/components/workout/ActiveWorkout";
 import SwipeNavigator from "@/components/SwipeNavigator";
 import AuthProvider from "@/components/AuthProvider";
@@ -34,14 +35,16 @@ export default function RootLayout({
     <html lang="it">
       <body className="antialiased">
         <AuthProvider>
-          <WorkoutProvider>
-            <main className="min-h-screen pb-20">
-              {children}
-            </main>
-            <BottomTabBar />
-            <ActiveWorkout />
-            <SwipeNavigator />
-          </WorkoutProvider>
+          <ThemeProvider>
+            <WorkoutProvider>
+              <main className="min-h-screen pb-20">
+                {children}
+              </main>
+              <BottomTabBar />
+              <ActiveWorkout />
+              <SwipeNavigator />
+            </WorkoutProvider>
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>

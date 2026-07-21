@@ -5,6 +5,8 @@ import { Search, Plus, X, Trash2 } from "lucide-react";
 import { useWorkout } from "@/context/WorkoutContext";
 import { storage, Exercise } from "@/utils/storage";
 
+import ThemeQuickToggle from "@/components/ThemeQuickToggle";
+
 export default function ExercisesPage() {
   const { setBottomBarVisible, isBottomBarVisible, isActive, isMinimized, pageAnimationClass } = useWorkout();
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -130,13 +132,16 @@ export default function ExercisesPage() {
         <header className="glass-header flex flex-col p-4 sticky top-0 z-10 gap-3">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold font-sans tracking-tight">Esercizi</h1>
-          <button 
-            onClick={openAddModal}
-            className="p-2 text-primary active:scale-95 transition-transform" 
-            aria-label="Nuovo esercizio"
-          >
-            <Plus size={24} />
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeQuickToggle />
+            <button 
+              onClick={openAddModal}
+              className="p-2 text-primary active:scale-95 transition-transform" 
+              aria-label="Nuovo esercizio"
+            >
+              <Plus size={24} />
+            </button>
+          </div>
         </div>
         
         <div className="relative">
