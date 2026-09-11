@@ -1201,15 +1201,15 @@ export default function ActiveWorkout() {
         onTouchStart={handleHeaderTouchStart}
         onTouchMove={handleHeaderTouchMove}
         onTouchEnd={handleHeaderTouchEnd}
-        className="glass-header flex flex-col items-center p-3 relative cursor-grab active:cursor-grabbing border-b border-black/5 dark:border-white/5"
+        className="glass-header flex flex-col items-center px-4 pt-2.5 pb-3 relative cursor-grab active:cursor-grabbing border-b border-black/[0.06] dark:border-white/[0.08]"
       >
         {/* iOS-Style Pill Handle Indicator */}
-        <div className="w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full mb-2"></div>
+        <div className="w-10 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700/90 mb-2.5"></div>
         
-        <div className="w-full flex justify-between items-center px-1">
+        <div className="w-full flex justify-between items-center">
           <button 
             onClick={handleCancelWorkout} 
-            className="text-red-500 font-semibold active:scale-95 transition-transform text-sm"
+            className="text-red-500 hover:text-red-600 font-semibold active:opacity-60 transition-opacity text-[15px]"
           >
             Annulla
           </button>
@@ -1221,14 +1221,19 @@ export default function ActiveWorkout() {
                 setEditedWorkoutName(workoutName);
                 setIsEditNameModalOpen(true);
               }}
-              className="flex items-center gap-1.5 text-primary font-extrabold text-base leading-none tracking-tight active:scale-95 transition-transform group cursor-pointer"
+              className="flex items-center gap-1.5 text-foreground font-extrabold text-[16px] leading-tight tracking-tight active:scale-95 transition-transform group cursor-pointer"
               title="Tocca per modificare il nome dell'allenamento / Settimana"
             >
               <span>{workoutName}</span>
-              <Pencil size={12} className="text-gray-400 group-hover:text-primary transition-colors" />
+              <span className="w-5 h-5 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-zinc-400 group-hover:text-primary transition-colors">
+                <Pencil size={11} />
+              </span>
             </button>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-secondary font-mono text-sm font-bold bg-black/5 dark:bg-white/5 px-2.5 py-0.5 rounded-full">{formatTime(durationSeconds)}</span>
+              <div className="flex items-center gap-1.5 bg-black/[0.04] dark:bg-white/[0.06] border border-black/[0.04] dark:border-white/[0.08] px-2.5 py-0.5 rounded-full shadow-inner">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-secondary font-mono text-xs font-bold">{formatTime(durationSeconds)}</span>
+              </div>
               
               {/* App Shortcuts: Spotify & Google Sheets */}
               <div className="flex items-center gap-1.5">
@@ -1241,11 +1246,11 @@ export default function ActiveWorkout() {
                       window.open("https://open.spotify.com", "_blank");
                     }, 500);
                   }}
-                  className="w-6.5 h-6.5 rounded-full bg-[#1DB954]/15 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 flex items-center justify-center text-[#1DB954] active:scale-90 transition-all cursor-pointer shadow-sm"
+                  className="w-6 h-6 rounded-full bg-[#1DB954]/15 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 flex items-center justify-center text-[#1DB954] active:scale-90 transition-all cursor-pointer shadow-sm"
                   title="Apri Spotify"
                   aria-label="Apri Spotify"
                 >
-                  <SpotifyLogo size={14} />
+                  <SpotifyLogo size={13} />
                 </a>
 
                 <a
@@ -1257,11 +1262,11 @@ export default function ActiveWorkout() {
                       window.open("https://docs.google.com/spreadsheets", "_blank");
                     }, 500);
                   }}
-                  className="w-6.5 h-6.5 rounded-full bg-[#0F9D58]/15 hover:bg-[#0F9D58]/25 border border-[#0F9D58]/30 flex items-center justify-center active:scale-90 transition-all cursor-pointer shadow-sm"
+                  className="w-6 h-6 rounded-full bg-[#0F9D58]/15 hover:bg-[#0F9D58]/25 border border-[#0F9D58]/30 flex items-center justify-center active:scale-90 transition-all cursor-pointer shadow-sm"
                   title="Apri Scheda Cata 19 su Google Sheets"
                   aria-label="Apri Google Sheets"
                 >
-                  <GoogleSheetsLogo size={14} />
+                  <GoogleSheetsLogo size={13} />
                 </a>
               </div>
             </div>
@@ -1269,7 +1274,7 @@ export default function ActiveWorkout() {
           
           <button 
             onClick={handleFinishWorkout} 
-            className="bg-primary text-white text-xs font-extrabold px-4 py-2 rounded-full shadow-md shadow-primary/20 active:scale-95 transition-all duration-200"
+            className="bg-primary hover:bg-primary/95 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-md shadow-primary/20 active:scale-95 transition-all duration-200"
           >
             Fine
           </button>
@@ -1283,19 +1288,21 @@ export default function ActiveWorkout() {
           const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
 
           return (
-            <div key={ex.exerciseId} className="glass-panel rounded-2xl overflow-hidden border border-white/20 dark:border-white/5">
-              <div className="p-4 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-white/10 dark:bg-black/10">
-                <div className="flex-1 pr-2">
-                  <div className="flex items-center gap-2 flex-wrap">
+            <div key={ex.exerciseId} className="rounded-[26px] bg-white/75 dark:bg-zinc-900/75 backdrop-blur-2xl border border-black/[0.04] dark:border-white/[0.08] shadow-[0_4px_24px_-4px_rgba(0,0,0,0.05)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.35)] overflow-hidden transition-all duration-300">
+              <div className="px-4 pt-4 pb-3 border-b border-black/[0.04] dark:border-white/[0.06] flex justify-between items-start gap-2 bg-black/[0.015] dark:bg-white/[0.02]">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     <button
                       type="button"
                       onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
                       className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
                       title="Tocca per vedere lo storico delle settimane precedenti"
                     >
-                      <h2 className="text-[17px] font-extrabold text-primary group-hover:underline">{ex.exerciseName}</h2>
-                      <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20 flex items-center gap-0.5 group-hover:bg-primary/20 transition-all uppercase tracking-wider">
-                        <History size={11} /> Storico
+                      <h2 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-50 group-hover:text-primary transition-colors tracking-tight">
+                        {ex.exerciseName}
+                      </h2>
+                      <span className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1 transition-all">
+                        <History size={10} className="stroke-[2.5px]" /> Storico
                       </span>
                     </button>
 
@@ -1307,99 +1314,105 @@ export default function ActiveWorkout() {
                         setTempTimerSeconds(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds));
                         setIsCustomTimerModalOpen(true);
                       }}
-                      className="text-[9.5px] font-extrabold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/25 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                      className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/25 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
                       title="Personalizza tempo di recupero per questo esercizio"
                     >
-                      <Timer size={11} />
+                      <Timer size={10} className="stroke-[2.5px]" />
                       <span>{formatRestDuration(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds))}</span>
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-1 items-center">
+
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                     {isDuration ? (
                       <>
-                        <span>Durata tot: <span className="font-semibold text-primary">{secondsToHHMMSS(ex.sets.reduce((sum, s) => sum + s.reps, 0)) || "00:00"}</span></span>
+                        <span className="text-[11px] font-medium">Durata: <span className="font-bold text-zinc-800 dark:text-zinc-200">{secondsToHHMMSS(ex.sets.reduce((sum, s) => sum + s.reps, 0)) || "00:00"}</span></span>
                         {ex.sets.some(s => s.weight > 0) && (
-                          <span>Zavorra max: <span className="font-semibold text-primary">{Math.max(...ex.sets.map(s => s.weight))} kg</span></span>
+                          <span className="text-[11px] font-medium">Zavorra max: <span className="font-bold text-zinc-800 dark:text-zinc-200">{Math.max(...ex.sets.map(s => s.weight))} kg</span></span>
                         )}
                       </>
                     ) : (
-                      <>
-                        <span className="flex items-center gap-1">
-                          Volume: <span className="font-semibold text-primary">{ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0)} kg</span>
-                          {(() => {
-                            const currentVolume = ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0);
-                            const delta = getExerciseVolumeDelta(ex.exerciseId, currentVolume, isDuration, ex.exerciseName);
-                            if (!delta) return null;
-                            return (
-                              <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.2 rounded font-sans uppercase leading-none ${
-                                delta.isNeutral
-                                  ? "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 dark:text-zinc-400"
-                                  : delta.isPositive 
-                                    ? "bg-green-500/10 text-green-600 border border-green-500/20 dark:text-green-400" 
-                                    : "bg-red-500/10 text-red-600 border border-red-500/20 dark:text-red-400"
-                              }`}>
-                                {delta.isNeutral ? "●" : delta.isPositive ? "▲" : "▼"} {delta.percent}
-                              </span>
-                            );
-                          })()}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] font-medium">
+                          Volume: <span className="font-bold text-zinc-800 dark:text-zinc-200">{ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0)} kg</span>
                         </span>
-                      </>
+                        {(() => {
+                          const currentVolume = ex.sets.reduce((sum, s) => sum + calculateSetVolume(s.weight, s.reps, s.type, isDuration), 0);
+                          const delta = getExerciseVolumeDelta(ex.exerciseId, currentVolume, isDuration, ex.exerciseName);
+                          if (!delta) return null;
+                          return (
+                            <span className={`inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-md font-sans leading-none tracking-tight ${
+                              delta.isNeutral
+                                ? "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 dark:text-zinc-400"
+                                : delta.isPositive 
+                                  ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/25 dark:text-emerald-400" 
+                                  : "bg-rose-500/10 text-rose-600 border border-rose-500/25 dark:text-rose-400"
+                            }`}>
+                              {delta.isNeutral ? "●" : delta.isPositive ? "▲" : "▼"} {delta.percent}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
                 </div>
 
-                {/* Card Header Actions: Move Up, Move Down, Delete */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => moveExercise(exIdx, "up")}
-                    disabled={exIdx === 0}
-                    className={`p-1.5 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
-                      exIdx === 0
-                        ? "opacity-20 cursor-not-allowed text-gray-400"
-                        : "text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
-                    }`}
-                    title="Sposta esercizio su"
-                    aria-label="Sposta esercizio su"
-                  >
-                    <ChevronUp size={16} />
-                  </button>
+                {/* Card Header Actions: Segmented Up/Down & Delete */}
+                <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                  <div className="flex items-center bg-black/5 dark:bg-white/5 rounded-xl p-0.5 border border-black/5 dark:border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => moveExercise(exIdx, "up")}
+                      disabled={exIdx === 0}
+                      className={`p-1.5 rounded-lg transition-all active:scale-90 ${
+                        exIdx === 0
+                          ? "opacity-20 cursor-not-allowed text-zinc-400"
+                          : "text-zinc-600 dark:text-zinc-300 hover:bg-white/80 dark:hover:bg-zinc-700/80 cursor-pointer shadow-sm"
+                      }`}
+                      title="Sposta esercizio su"
+                      aria-label="Sposta esercizio su"
+                    >
+                      <ChevronUp size={14} className="stroke-[2.5px]" />
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => moveExercise(exIdx, "down")}
-                    disabled={exIdx === activeExercises.length - 1}
-                    className={`p-1.5 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
-                      exIdx === activeExercises.length - 1
-                        ? "opacity-20 cursor-not-allowed text-gray-400"
-                        : "text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
-                    }`}
-                    title="Sposta esercizio giù"
-                    aria-label="Sposta esercizio giù"
-                  >
-                    <ChevronDown size={16} />
-                  </button>
+                    <div className="w-[1px] h-3.5 bg-black/10 dark:bg-white/10 mx-0.5" />
+
+                    <button
+                      type="button"
+                      onClick={() => moveExercise(exIdx, "down")}
+                      disabled={exIdx === activeExercises.length - 1}
+                      className={`p-1.5 rounded-lg transition-all active:scale-90 ${
+                        exIdx === activeExercises.length - 1
+                          ? "opacity-20 cursor-not-allowed text-zinc-400"
+                          : "text-zinc-600 dark:text-zinc-300 hover:bg-white/80 dark:hover:bg-zinc-700/80 cursor-pointer shadow-sm"
+                      }`}
+                      title="Sposta esercizio giù"
+                      aria-label="Sposta esercizio giù"
+                    >
+                      <ChevronDown size={14} className="stroke-[2.5px]" />
+                    </button>
+                  </div>
 
                   <button 
                     onClick={() => removeExercise(exIdx)}
-                    className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-xl active:scale-95 transition-colors cursor-pointer"
+                    className="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl active:scale-90 transition-all cursor-pointer"
                     aria-label="Rimuovi esercizio"
                     title="Elimina esercizio"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={15} className="stroke-[2px]" />
                   </button>
                 </div>
               </div>
-                 <div className="px-4 py-3">
+
+              <div className="px-3.5 py-3">
                 {/* Custom CSS Grid table for absolute smooth swipe gestures */}
                 <div className="w-full text-sm">
                   {/* Grid Header */}
-                  <div className="grid grid-cols-[40px_1fr_48px_1fr_48px] items-center text-gray-500 text-[11px] uppercase tracking-wider pb-2 px-1">
-                    <span className="font-bold text-left">Serie</span>
-                    <span className="font-bold text-center">{isDuration ? "+ kg" : "kg"}</span>
-                    <span className="font-bold text-center">RPE</span>
-                    <span className="font-bold text-center">{isDuration ? "tempo" : "reps"}</span>
-                    <span className="font-bold text-center">✓</span>
+                  <div className="grid grid-cols-[38px_1fr_42px_1fr_42px] items-center text-zinc-400 dark:text-zinc-500 text-[10px] font-bold uppercase tracking-wider pb-2 px-1">
+                    <span className="text-left pl-1">SERIE</span>
+                    <span className="text-center">{isDuration ? "+ KG" : "KG"}</span>
+                    <span className="text-center">RPE</span>
+                    <span className="text-center">{isDuration ? "TEMPO" : "REPS"}</span>
+                    <span className="text-center">✓</span>
                   </div>
 
                   {/* Grid Body */}
@@ -1450,24 +1463,26 @@ export default function ActiveWorkout() {
                         >
                           {/* Red Swipe Action Background Panel */}
                           <div 
-                            className="absolute inset-0 bg-red-500 flex items-center justify-end pr-4 text-white transition-opacity duration-200"
+                            className="absolute inset-0 bg-rose-500 rounded-xl flex items-center justify-end pr-4 text-white transition-opacity duration-200"
                             style={{
                               opacity: currentOffset > 0 ? 1 : 0
                             }}
                           >
                             <div 
                               className={`transition-all duration-200 ${
-                                currentOffset > 150 ? "scale-125 text-white" : "scale-100 text-white/80"
+                                currentOffset > 150 ? "scale-125 text-white" : "scale-100 text-white/90"
                               }`}
                             >
-                              <Trash2 size={18} className={currentOffset > 150 ? "animate-bounce" : ""} />
+                              <Trash2 size={17} className={currentOffset > 150 ? "animate-bounce" : ""} />
                             </div>
                           </div>
 
                           {/* Foreground Swiping Row */}
                           <div 
-                            className={`grid grid-cols-[40px_1fr_48px_1fr_48px] items-center py-3.5 px-1 rounded-xl bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 relative z-10 transition-transform ${
-                              isDone ? "bg-primary/5 dark:bg-primary/10 border-primary/20" : ""
+                            className={`grid grid-cols-[38px_1fr_42px_1fr_42px] items-center py-2 px-1 rounded-xl transition-all relative z-10 ${
+                              isDone 
+                                ? "bg-emerald-500/[0.05] dark:bg-emerald-500/[0.08] border border-emerald-500/25 shadow-sm" 
+                                : "bg-white dark:bg-zinc-800/80 border border-black/[0.04] dark:border-white/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
                             }`}
                             style={{
                               transform: `translateX(${-currentOffset}px)`,
@@ -1476,18 +1491,18 @@ export default function ActiveWorkout() {
                             }}
                           >
                              {/* Serie Badge (Interactive button to cycle types) */}
-                             <div className="text-left pl-1">
+                             <div className="text-left pl-0.5">
                                <button
                                  type="button"
                                  onClick={() => cycleSetType(exIdx, setIdx)}
-                                 className={`rounded-lg w-7 h-7 text-[13px] font-bold flex items-center justify-center active:scale-90 transition-transform ${
+                                 className={`rounded-lg w-7 h-7 text-[12px] font-bold font-mono flex items-center justify-center active:scale-90 transition-all ${
                                    set.type === "W"
-                                     ? "bg-orange-500/10 text-orange-500 border border-orange-500/20"
+                                     ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
                                      : set.type === "F"
-                                       ? "bg-red-500/10 text-red-500 border border-red-500/20"
+                                       ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30"
                                        : set.type === "D"
-                                         ? "bg-purple-500/10 text-purple-500 border border-purple-500/20"
-                                         : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                         ? "bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                                         : "bg-zinc-100 dark:bg-zinc-700/60 text-zinc-600 dark:text-zinc-300 border border-black/[0.03] dark:border-white/[0.05]"
                                  }`}
                                  title="Tipo di serie: Normale, Warmup (W), Cedimento (F), Dropset (D)"
                                >
@@ -1495,9 +1510,9 @@ export default function ActiveWorkout() {
                                </button>
                              </div>
                              
-                             {/* Weight Column: Capsule Pill Input */}
+                             {/* Weight Column: Apple Capsule Pill Input */}
                              <div className="px-1">
-                               <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3.5 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
+                               <div className="bg-zinc-100/80 dark:bg-zinc-900/70 hover:bg-zinc-200/60 dark:hover:bg-zinc-900 transition-all rounded-xl flex items-center justify-between px-2.5 py-1.5 border border-black/[0.04] dark:border-white/[0.06] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 w-full relative z-20">
                                  <input 
                                    type="text" 
                                    id={`input_${exIdx}_${setIdx}_weight`}
@@ -1510,9 +1525,9 @@ export default function ActiveWorkout() {
                                    }}
                                    onChange={(e) => updateSet(exIdx, setIdx, "weight", e.target.value)}
                                    onBlur={(e) => handleWeightInputBlur(exIdx, setIdx, e.target.value)}
-                                   className="w-full bg-transparent text-center font-bold text-[17px] focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
+                                   className="w-full bg-transparent text-center font-bold text-[16px] focus:outline-none text-zinc-900 dark:text-zinc-100 caret-primary placeholder:text-zinc-300 dark:placeholder:text-zinc-600" 
                                  />
-                                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">kg</span>
+                                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-semibold select-none pr-0.5 uppercase">kg</span>
                                </div>
                              </div>
 
@@ -1521,19 +1536,19 @@ export default function ActiveWorkout() {
                                <button 
                                  type="button"
                                  onClick={() => setRpePickerState({ exIdx, setIdx })}
-                                 className={`h-7 min-w-[28px] px-1.5 rounded-md text-[11px] font-bold transition-all flex items-center justify-center mx-auto ${
+                                 className={`h-7 min-w-[28px] px-1.5 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center mx-auto active:scale-90 ${
                                    set.rpe !== undefined && set.rpe > 0
-                                     ? "bg-primary/10 text-primary border border-primary/20 scale-105" 
-                                     : "text-gray-400 hover:text-primary bg-black/5 dark:bg-white/5"
+                                     ? "bg-primary/15 text-primary border border-primary/25 shadow-sm scale-105" 
+                                     : "text-zinc-400 hover:text-primary bg-zinc-100/80 dark:bg-zinc-900/70"
                                  }`}
                                >
                                  {set.rpe !== undefined && set.rpe > 0 ? set.rpe.toString().replace(".", ",") : "@"}
                                </button>
                              </div>
 
-                             {/* Reps or Duration Column: Capsule Pill Input */}
+                             {/* Reps or Duration Column: Apple Capsule Pill Input */}
                              <div className="px-1">
-                               <div className="bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors rounded-full flex items-center justify-between px-3 py-1.5 border border-transparent focus-within:border-primary/40 w-full relative z-20">
+                               <div className="bg-zinc-100/80 dark:bg-zinc-900/70 hover:bg-zinc-200/60 dark:hover:bg-zinc-900 transition-all rounded-xl flex items-center justify-between px-2.5 py-1.5 border border-black/[0.04] dark:border-white/[0.06] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 w-full relative z-20">
                                  {isDuration ? (
                                    <input 
                                      type="text" 
@@ -1547,7 +1562,7 @@ export default function ActiveWorkout() {
                                      }}
                                      onChange={(e) => handleTimeInputChange(exIdx, setIdx, e.target.value)}
                                      onBlur={(e) => handleTimeInputBlur(exIdx, setIdx, e.target.value)}
-                                     className="w-full bg-transparent text-center font-bold text-[17px] font-mono focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600 animate-none" 
+                                     className="w-full bg-transparent text-center font-bold text-[16px] font-mono focus:outline-none text-zinc-900 dark:text-zinc-100 caret-primary placeholder:text-zinc-300 dark:placeholder:text-zinc-600" 
                                    />
                                  ) : (
                                    <input 
@@ -1561,26 +1576,26 @@ export default function ActiveWorkout() {
                                        setShouldOverwrite(true);
                                      }}
                                      onChange={(e) => updateSet(exIdx, setIdx, "reps", e.target.value)}
-                                     className="w-full bg-transparent text-center font-bold text-[17px] focus:outline-none text-primary caret-primary placeholder:text-gray-400 dark:placeholder:text-gray-600" 
+                                     className="w-full bg-transparent text-center font-bold text-[16px] focus:outline-none text-zinc-900 dark:text-zinc-100 caret-primary placeholder:text-zinc-300 dark:placeholder:text-zinc-600" 
                                    />
                                  )}
-                                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold select-none pr-0.5 uppercase">
+                                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-semibold select-none pr-0.5 uppercase">
                                    {isDuration ? "sec" : "reps"}
                                  </span>
                                </div>
                              </div>
 
-                            {/* Tick Checkbox complete button */}
+                            {/* Tick Checkbox complete button (Authentic iOS circular toggle) */}
                             <div className="text-center">
                               <button 
                                 onClick={() => toggleSetComplete(exIdx, setIdx)}
-                                className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto transition-all duration-200 ${
+                                className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto transition-all duration-200 active:scale-90 ${
                                   isDone 
-                                    ? "bg-primary text-white shadow-sm shadow-primary/40 active:scale-90" 
-                                    : "bg-black/5 dark:bg-white/10 text-gray-400 hover:text-primary active:scale-90"
+                                    ? "bg-emerald-500 text-white shadow-[0_2px_8px_rgba(16,185,129,0.35)]" 
+                                    : "border-2 border-zinc-300 dark:border-zinc-700 bg-transparent hover:border-zinc-400 text-transparent"
                                 }`}
                               >
-                                <Check size={16} className="stroke-[3.5px]" />
+                                <Check size={16} className={`stroke-[3.5px] ${isDone ? "text-white scale-100" : "opacity-0"}`} />
                               </button>
                             </div>
                           </div>
@@ -1590,10 +1605,10 @@ export default function ActiveWorkout() {
                       if (restingSetKey === setKey && restTimeLeft > 0) {
                         const restBar = (
                           <div key={`${setIdx}-rest`} className="animate-in slide-in-from-top-1 duration-300 py-1">
-                            <div className="relative w-full h-8 bg-black/5 dark:bg-white/5 rounded-xl overflow-hidden shadow-inner border border-black/5 dark:border-white/5 flex items-center justify-between p-0.5">
+                            <div className="relative w-full h-8 bg-zinc-900/90 dark:bg-black/90 backdrop-blur-md rounded-xl overflow-hidden shadow-inner border border-white/10 flex items-center justify-between p-0.5 text-white">
                               {/* Glowing Gradient Collapsing Rest Progress Bar */}
                               <div 
-                                className="absolute top-0.5 bottom-0.5 left-0.5 bg-gradient-to-r from-primary to-blue-500 rounded-lg shadow-[0_0_12px_rgba(0,87,255,0.35)] transition-all duration-1000 ease-linear z-0"
+                                className="absolute top-0.5 bottom-0.5 left-0.5 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-lg shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all duration-1000 ease-linear z-0"
                                 style={{ width: `calc(${(restTimeLeft / (activeRestTotalDuration || defaultRestSeconds)) * 100}% - 4px)` }}
                               />
                               
@@ -1603,14 +1618,14 @@ export default function ActiveWorkout() {
                                   e.stopPropagation();
                                   adjustRestTimer(-15);
                                 }}
-                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 dark:bg-black/20 hover:bg-white/30 text-zinc-900 dark:text-white flex items-center justify-center text-[10px] font-black active:scale-90 transition-transform ml-0.5 border border-white/10"
+                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-[10px] font-bold active:scale-90 transition-transform ml-0.5 border border-white/10"
                                 title="Sottrai 15s"
                               >
                                 -15s
                               </button>
 
                               {/* Counter in MM:SS (Super readable, high contrast text) */}
-                              <div className="absolute inset-0 flex items-center justify-center text-xs font-extrabold text-zinc-900 dark:text-white font-sans tracking-wider z-10 pointer-events-none">
+                              <div className="absolute inset-0 flex items-center justify-center text-xs font-black text-white font-mono tracking-wider z-10 pointer-events-none drop-shadow-sm">
                                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:{(restTimeLeft % 60).toString().padStart(2, "0")}
                               </div>
 
@@ -1620,7 +1635,7 @@ export default function ActiveWorkout() {
                                   e.stopPropagation();
                                   adjustRestTimer(15);
                                 }}
-                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 dark:bg-black/20 hover:bg-white/30 text-zinc-900 dark:text-white flex items-center justify-center text-[10px] font-black active:scale-90 transition-transform mr-0.5 border border-white/10"
+                                className="relative z-10 w-7 h-7 rounded-lg bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-[10px] font-bold active:scale-90 transition-transform mr-0.5 border border-white/10"
                                 title="Aggiungi 15s"
                               >
                                 +15s
@@ -1635,17 +1650,18 @@ export default function ActiveWorkout() {
                     })}
                   </div>
                 </div>
+
+                <button 
+                  onClick={() => addSet(exIdx)}
+                  className="w-full mt-2.5 py-2.5 rounded-xl bg-zinc-100/80 dark:bg-zinc-800/60 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/60 text-primary font-bold text-xs flex items-center justify-center gap-1.5 active:scale-[0.99] transition-all border border-black/[0.04] dark:border-white/[0.05]"
+                >
+                  <Plus size={15} className="stroke-[2.5px]" /> Aggiungi Serie
+                </button>
               </div>
-              <button 
-                onClick={() => addSet(exIdx)}
-                className="w-full mt-3 py-2 text-primary hover:bg-primary/5 rounded-xl border border-dashed border-primary/20 font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all"
-              >
-                <Plus size={14} /> Serie
-              </button>
 
               {/* Sensazioni / Feedback Esercizio */}
-              <div className="mt-3.5 pt-3 border-t border-black/5 dark:border-white/5 flex flex-col gap-1.5">
-                <label className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-1">
+              <div className="px-4 pb-4 pt-1 flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-0.5">
                   Sensazioni Esercizio (Feedback Atleta)
                 </label>
                 <textarea
@@ -1660,7 +1676,7 @@ export default function ActiveWorkout() {
                       return copy;
                     });
                   }}
-                  className="glass-input w-full px-4 py-3 rounded-xl text-[16px] placeholder:text-[14px] outline-none font-medium resize-none text-zinc-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-zinc-950 border border-transparent focus:border-primary/30 transition-all duration-200"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-[16px] placeholder:text-[13px] outline-none font-medium resize-none text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 bg-zinc-100/70 dark:bg-zinc-950/60 focus:bg-white dark:focus:bg-zinc-950 border border-black/[0.04] dark:border-white/[0.06] focus:border-primary/40 transition-all duration-200"
                 />
               </div>
             </div>
@@ -1668,28 +1684,28 @@ export default function ActiveWorkout() {
         })}
 
         {/* Global Add Exercise and Reorder Buttons at bottom */}
-        <div className="flex gap-2">
+        <div className="flex gap-2.5 pt-2">
           <button 
             onClick={() => setIsAddExerciseOpen(true)}
-            className="flex-1 py-4 glass-panel bg-white/20 hover:bg-white/30 text-primary font-bold rounded-2xl flex items-center justify-center gap-2 border-dashed border-primary/30 active:scale-95 transition-all cursor-pointer"
+            className="flex-1 py-4 rounded-[22px] bg-primary hover:bg-primary/95 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-primary/25 active:scale-[0.98] transition-all cursor-pointer"
           >
-            <Plus size={20} /> Aggiungi Esercizio
+            <Plus size={18} className="stroke-[2.5px]" /> Aggiungi Esercizio
           </button>
           {activeExercises.length > 1 && (
             <button
               onClick={() => setIsReorderModalOpen(true)}
-              className="px-5 py-4 glass-panel bg-white/20 hover:bg-white/30 text-zinc-700 dark:text-zinc-300 font-bold rounded-2xl flex items-center justify-center gap-2 border border-black/5 dark:border-white/10 active:scale-95 transition-all cursor-pointer"
+              className="px-5 py-4 rounded-[22px] bg-white/70 dark:bg-zinc-800/70 hover:bg-white/90 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-bold text-sm flex items-center justify-center gap-2 border border-black/[0.05] dark:border-white/[0.08] shadow-sm active:scale-[0.98] transition-all cursor-pointer backdrop-blur-xl"
               title="Riordina tutti gli esercizi"
             >
-              <ArrowUpDown size={18} /> Riordina
+              <ArrowUpDown size={17} className="stroke-[2.2px]" /> Riordina
             </button>
           )}
         </div>
       </div>
 
-      {/* Rest Timer Panel */}
+      {/* Floating Rest Timer Live Activity Island */}
       {restTimeLeft > 0 && (
-        <div className="glass-nav fixed bottom-0 left-0 right-0 p-4 flex items-center justify-between pb-safe z-[105] shadow-[0_-8px_30px_rgb(0,0,0,0.15)] border-t border-white/20">
+        <div className="fixed bottom-4 left-3 right-3 max-w-lg mx-auto z-[105] rounded-[28px] bg-zinc-900/95 dark:bg-zinc-950/95 backdrop-blur-2xl text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] border border-white/15 px-3.5 py-3 flex items-center justify-between animate-in slide-in-from-bottom-3 duration-300">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => {
@@ -1703,85 +1719,89 @@ export default function ActiveWorkout() {
                   gymChime.stopSilence(); // Can go to sleep when paused
                 }
               }}
-              className="w-10 h-10 rounded-full bg-secondary/10 border border-secondary/20 flex items-center justify-center text-secondary active:scale-90 transition-transform"
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-all cursor-pointer shrink-0"
             >
-              {isRestPaused ? <Play size={18} fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
+              {isRestPaused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}
             </button>
+
             <div className="flex flex-col">
               <button 
                 onClick={toggleKeepAlive}
-                className="text-[10px] text-gray-500 font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-transform"
+                className="text-[9.5px] font-bold uppercase tracking-wider flex items-center gap-1.5 active:scale-95 transition-transform text-left cursor-pointer"
                 title={keepAlive ? "Modalità Background: suona anche a schermo spento / telefono bloccato (iOS sospende Spotify)" : "Modalità Spotify: Spotify non si ferma mai, schermo sempre attivo col timer"}
               >
-                <span>Riposo</span>
+                <span className="text-zinc-400">Riposo</span>
                 {keepAlive ? (
-                  <span className="text-amber-500 text-[8.5px] bg-amber-500/10 px-1.5 rounded-full border border-amber-500/20 leading-none py-0.5 font-sans font-bold">
+                  <span className="text-amber-400 text-[8.5px] bg-amber-400/15 px-1.5 rounded-full border border-amber-400/25 leading-none py-0.5 font-sans font-bold">
                     🔔 BG SCHERMO SPENTO
                   </span>
                 ) : (
-                  <span className="text-primary text-[8.5px] bg-primary/10 px-1.5 rounded-full border border-primary/20 leading-none py-0.5 font-sans font-bold">
-                    🎧 SPOTIFY (SCHERMO ATTIVO)
+                  <span className="text-primary text-[8.5px] bg-primary/20 px-1.5 rounded-full border border-primary/30 leading-none py-0.5 font-sans font-bold">
+                    🎧 SPOTIFY (ATTIVO)
                   </span>
                 )}
               </button>
-              <span className="font-mono font-bold text-xl leading-none text-secondary mt-0.5">
+              <span className="font-mono font-black text-2xl leading-tight text-white tracking-tight">
                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:
                 {(restTimeLeft % 60).toString().padStart(2, "0")}
               </span>
             </div>
           </div>
 
-          {/* Quick glassmorphic time adjusters */}
-          <div className="flex items-center gap-1.5 bg-black/5 dark:bg-white/5 rounded-full p-1 border border-black/5 dark:border-white/5">
+          <div className="flex items-center gap-2">
+            {/* Quick glassmorphic time adjusters */}
+            <div className="flex items-center gap-1 bg-white/10 rounded-full p-0.5 border border-white/10">
+              <button 
+                onClick={() => adjustRestTimer(-15)}
+                className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 text-white flex items-center justify-center text-[11px] font-bold active:scale-90 transition-all cursor-pointer"
+                title="Sottrai 15 secondi"
+              >
+                -15s
+              </button>
+              <button 
+                onClick={() => adjustRestTimer(15)}
+                className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 text-white flex items-center justify-center text-[11px] font-bold active:scale-90 transition-all cursor-pointer"
+                title="Aggiungi 15 secondi"
+              >
+                +15s
+              </button>
+            </div>
+
             <button 
-              onClick={() => adjustRestTimer(-15)}
-              className="w-9 h-9 rounded-full bg-white/40 dark:bg-black/30 hover:bg-white/60 dark:hover:bg-black/50 text-zinc-800 dark:text-white flex items-center justify-center text-xs font-black shadow-sm active:scale-90 transition-transform"
-              title="Sottrai 15 secondi"
+              onClick={() => {
+                setRestTimeLeft(0);
+                setRestEndTime(null);
+                setRestingSetKey(null);
+                gymChime.stopSilence(); // Stopped rest
+              }}
+              className="flex items-center gap-1 text-[11px] font-bold text-zinc-300 hover:text-white bg-white/10 hover:bg-white/15 border border-white/10 px-3 py-2 rounded-full active:scale-95 transition-all cursor-pointer shrink-0"
             >
-              -15s
-            </button>
-            <button 
-              onClick={() => adjustRestTimer(15)}
-              className="w-9 h-9 rounded-full bg-white/40 dark:bg-black/30 hover:bg-white/60 dark:hover:bg-black/50 text-zinc-800 dark:text-white flex items-center justify-center text-xs font-black shadow-sm active:scale-90 transition-transform"
-              title="Aggiungi 15 secondi"
-            >
-              +15s
+              Salta <FastForward size={12} />
             </button>
           </div>
-
-          <button 
-            onClick={() => {
-              setRestTimeLeft(0);
-              setRestEndTime(null);
-              setRestingSetKey(null);
-              gymChime.stopSilence(); // Stopped rest
-            }}
-            className="flex items-center gap-1 text-xs font-bold text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5 px-4 py-2 rounded-full active:scale-95 transition-transform"
-          >
-            Salta <FastForward size={14} />
-          </button>
         </div>
       )}
 
       {/* Add Exercise Modal (Catalog Browser) */}
       {isAddExerciseOpen && (
-        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="glass-panel w-full max-w-lg rounded-t-3xl p-6 h-[80vh] flex flex-col gap-4 ios-modal-animate border-x-0 border-b-0">
+        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-lg rounded-t-[32px] p-6 h-[82vh] flex flex-col gap-4 ios-modal-animate bg-white/95 dark:bg-zinc-900/95 backdrop-blur-3xl border-t border-black/5 dark:border-white/10 shadow-2xl pb-safe">
+            <div className="w-10 h-1 bg-zinc-300 dark:bg-zinc-700 rounded-full mx-auto -mt-2 mb-1" />
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold">Aggiungi Esercizio</h2>
+              <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Aggiungi Esercizio</h2>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="text-xs font-bold text-primary flex items-center gap-0.5 active:scale-95 transition-transform bg-primary/10 px-3 py-1.5 rounded-full"
+                  className="text-xs font-bold text-primary flex items-center gap-0.5 active:scale-95 transition-transform bg-primary/10 hover:bg-primary/15 px-3 py-1.5 rounded-full cursor-pointer"
                 >
                   <Plus size={14} /> Nuovo
                 </button>
                 <button 
                   onClick={() => setIsAddExerciseOpen(false)}
-                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 transition-all"
+                  className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 active:scale-95 transition-all text-zinc-500 dark:text-zinc-400 cursor-pointer"
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               </div>
             </div>
@@ -1792,7 +1812,7 @@ export default function ActiveWorkout() {
                 placeholder="Cerca nel catalogo..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="glass-input w-full px-4 py-3 rounded-xl text-sm outline-none"
+                className="w-full px-4 py-3 rounded-2xl text-sm outline-none bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:border-primary/40 transition-all"
               />
             </div>
 
@@ -1801,17 +1821,17 @@ export default function ActiveWorkout() {
                 <div 
                   key={ex.id}
                   onClick={() => selectExercise(ex)}
-                  className="p-3.5 rounded-xl border border-black/5 dark:border-white/5 bg-white/5 hover:bg-white/10 dark:hover:bg-white/5 transition-all cursor-pointer flex justify-between items-center active:scale-[0.98]"
+                  className="p-3.5 rounded-2xl border border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-all cursor-pointer flex justify-between items-center active:scale-[0.98]"
                 >
                   <div>
-                    <h4 className="font-semibold text-sm">{ex.name}</h4>
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">{ex.muscleGroup} • {ex.equipment}</span>
+                    <h4 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">{ex.name}</h4>
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{ex.muscleGroup} • {ex.equipment}</span>
                   </div>
                   <Plus size={18} className="text-primary" />
                 </div>
               ))}
               {filteredCatalog.length === 0 && (
-                <div className="p-8 text-center text-gray-500 text-sm font-medium">
+                <div className="p-8 text-center text-zinc-400 dark:text-zinc-500 text-sm font-medium">
                   Nessun esercizio trovato per &ldquo;{searchQuery}&rdquo;
                 </div>
               )}
@@ -1822,16 +1842,17 @@ export default function ActiveWorkout() {
 
       {/* RPE Picker Sheet Overlay */}
       {rpePickerState && (
-        <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="glass-panel w-full max-w-lg rounded-t-3xl p-6 flex flex-col gap-4 ios-modal-animate border-x-0 border-b-0 pb-safe bg-white">
+        <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/50 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-lg rounded-t-[32px] p-6 flex flex-col gap-4 ios-modal-animate bg-white/95 dark:bg-zinc-900/95 backdrop-blur-3xl border-t border-black/5 dark:border-white/10 shadow-2xl pb-safe">
+            <div className="w-10 h-1 bg-zinc-300 dark:bg-zinc-700 rounded-full mx-auto -mt-2 mb-1" />
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-base text-foreground">Scala Sforzo RPE</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Seleziona lo sforzo percepito (da 5 a 10 con mezzi punti)</p>
+                <h3 className="font-bold text-base text-zinc-900 dark:text-white">Scala Sforzo RPE</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Seleziona lo sforzo percepito (da 5 a 10 con mezzi punti)</p>
               </div>
               <button 
                 onClick={() => setRpePickerState(null)}
-                className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 active:scale-95 transition-all"
+                className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 active:scale-95 transition-all text-zinc-500 dark:text-zinc-400 cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -1985,29 +2006,34 @@ export default function ActiveWorkout() {
         const { exIdx, setIdx, field } = activeKeypad;
         const currentEx = activeExercises[exIdx];
         if (!currentEx) return null;
+        const foundEx = exercisesCatalog.find((c) => c.id === currentEx.exerciseId);
+        const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
         
         return (
-          <div className="fixed bottom-0 left-0 right-0 z-[120] glass-panel bg-white/95 dark:bg-zinc-950/95 backdrop-blur-xl border-t border-black/5 dark:border-white/10 shadow-[0_-12px_40px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom duration-300 pb-safe">
-            {/* Keyboard Header */}
+          <div className="fixed bottom-0 left-0 right-0 z-[120] bg-zinc-200/95 dark:bg-zinc-900/95 backdrop-blur-3xl border-t border-black/10 dark:border-white/10 shadow-[0_-12px_40px_rgba(0,0,0,0.25)] animate-in slide-in-from-bottom duration-250 pb-safe">
+            {/* iOS Sheet Handle Indicator */}
+            <div className="w-10 h-1 bg-zinc-400/50 dark:bg-zinc-600/50 rounded-full mx-auto mt-2 mb-1" />
+
+            {/* Keyboard Header Bar */}
             <div className="flex justify-between items-center px-4 py-2 border-b border-black/5 dark:border-white/5">
               <div className="flex flex-col">
-                <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400 dark:text-gray-500">
-                  Stai compilando
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">
+                  Modifica {field === "weight" ? "Carico" : isDuration ? "Tempo" : "Ripetizioni"}
                 </span>
-                <span className="text-xs font-bold text-primary">
-                  {currentEx.exerciseName} • Serie {setIdx + 1} ({field === "weight" ? "KG" : "Reps"})
+                <span className="text-xs font-bold text-zinc-900 dark:text-white">
+                  {currentEx.exerciseName} • Serie {setIdx + 1}
                 </span>
               </div>
               <button 
                 onClick={() => setActiveKeypad(null)}
-                className="text-xs font-extrabold text-primary hover:text-primary/80 bg-primary/10 px-3.5 py-1.5 rounded-full active:scale-95 transition-transform"
+                className="text-xs font-bold text-white bg-primary hover:bg-primary/90 px-4 py-1.5 rounded-full active:scale-95 transition-all shadow-sm cursor-pointer"
               >
-                Fine
+                Fatto
               </button>
             </div>
 
             {/* Keyboard Keys Layout */}
-            <div className="p-4 grid grid-cols-5 gap-3 h-[240px]">
+            <div className="p-3 grid grid-cols-5 gap-2.5 h-[235px]">
               {/* Left 80%: Numeric keys grid */}
               <div className="col-span-4 grid grid-cols-3 gap-2">
                 {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
@@ -2015,7 +2041,7 @@ export default function ActiveWorkout() {
                     key={num}
                     type="button"
                     onClick={() => handleKeypadPress(num)}
-                    className="bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-90 transition-transform text-foreground font-bold text-lg rounded-xl flex items-center justify-center border border-black/5 dark:border-white/5 select-none"
+                    className="bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700/80 active:bg-zinc-200 dark:active:bg-zinc-700 active:scale-95 transition-all text-zinc-900 dark:text-white font-semibold text-2xl rounded-2xl flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.1)] border border-black/[0.04] dark:border-white/[0.06] select-none cursor-pointer"
                   >
                     {num}
                   </button>
@@ -2023,21 +2049,21 @@ export default function ActiveWorkout() {
                 <button
                   type="button"
                   onClick={() => handleKeypadPress(",")}
-                  className="bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-90 transition-transform text-foreground font-bold text-lg rounded-xl flex items-center justify-center border border-black/5 dark:border-white/5 select-none"
+                  className="bg-white/80 dark:bg-zinc-800/80 hover:bg-white dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 active:scale-95 transition-all text-zinc-900 dark:text-white font-bold text-2xl rounded-2xl flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.1)] border border-black/[0.04] dark:border-white/[0.06] select-none cursor-pointer"
                 >
                   ,
                 </button>
                 <button
                   type="button"
                   onClick={() => handleKeypadPress("0")}
-                  className="bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-90 transition-transform text-foreground font-bold text-lg rounded-xl flex items-center justify-center border border-black/5 dark:border-white/5 select-none"
+                  className="bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700/80 active:bg-zinc-200 dark:active:bg-zinc-700 active:scale-95 transition-all text-zinc-900 dark:text-white font-semibold text-2xl rounded-2xl flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.1)] border border-black/[0.04] dark:border-white/[0.06] select-none cursor-pointer"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={handleKeypadBackspace}
-                  className="bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-90 transition-transform text-foreground font-bold text-lg rounded-xl flex items-center justify-center border border-black/5 dark:border-white/5 select-none"
+                  className="bg-white/80 dark:bg-zinc-800/80 hover:bg-white dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 active:scale-95 transition-all text-zinc-900 dark:text-white font-semibold text-xl rounded-2xl flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.1)] border border-black/[0.04] dark:border-white/[0.06] select-none cursor-pointer"
                 >
                   ⌫
                 </button>
@@ -2048,7 +2074,7 @@ export default function ActiveWorkout() {
                 <button
                   type="button"
                   onClick={() => handleKeypadAdjust("up")}
-                  className="flex-1 bg-green-500/10 hover:bg-green-500/20 active:scale-90 transition-transform text-green-500 font-extrabold text-2xl flex items-center justify-center rounded-xl border border-green-500/20 select-none"
+                  className="flex-1 bg-emerald-500/15 hover:bg-emerald-500/25 active:bg-emerald-500/35 active:scale-95 transition-all text-emerald-600 dark:text-emerald-400 font-bold text-2xl flex items-center justify-center rounded-2xl border border-emerald-500/30 select-none shadow-sm cursor-pointer"
                   title="Incrementa"
                 >
                   +
@@ -2056,7 +2082,7 @@ export default function ActiveWorkout() {
                 <button
                   type="button"
                   onClick={() => handleKeypadAdjust("down")}
-                  className="flex-1 bg-red-500/10 hover:bg-red-500/20 active:scale-90 transition-transform text-red-500 font-extrabold text-2xl flex items-center justify-center rounded-xl border border-red-500/20 select-none"
+                  className="flex-1 bg-rose-500/15 hover:bg-rose-500/25 active:bg-rose-500/35 active:scale-95 transition-all text-rose-600 dark:text-rose-400 font-bold text-2xl flex items-center justify-center rounded-2xl border border-rose-500/30 select-none shadow-sm cursor-pointer"
                   title="Decrementa"
                 >
                   -
