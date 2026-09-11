@@ -21,6 +21,7 @@ export interface WorkoutExercise {
   exerciseName: string;
   sets: WorkoutSet[];
   feedback?: string;
+  restSeconds?: number; // Custom rest timer in seconds for this exercise
 }
 
 export interface WorkoutSession {
@@ -282,6 +283,18 @@ export const storage = {
     const history = this.getHistory().filter(s => s.id !== id);
     if (isClient()) {
       localStorage.setItem("vmax_history", JSON.stringify(history));
+    }
+  },
+
+  getExerciseRestSeconds(exerciseId: string, defaultSeconds = 90): number {
+    if (!isClient()) return defaultSeconds;
+    const val = localStorage.getItem(`vmax_rest_${exerciseId}`);
+    return val ? parseInt(val, 10) || defaultSeconds : defaultSeconds;
+  },
+
+  setExerciseRestSeconds(exerciseId: string, seconds: number): void {
+    if (isClient()) {
+      localStorage.setItem(`vmax_rest_${exerciseId}`, seconds.toString());
     }
   },
 };

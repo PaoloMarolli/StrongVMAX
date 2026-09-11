@@ -2,10 +2,19 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History } from "lucide-react";
+import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History, ChevronUp, ChevronDown, Timer, ArrowUpDown } from "lucide-react";
 import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
 import { useSession, signIn } from "next-auth/react";
 import { gymChime } from "@/utils/audio";
+
+function formatRestDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return "90s";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 0 && s > 0) return `${m}m ${s}s`;
+  if (m > 0) return `${m} min`;
+  return `${s}s`;
+}
 
 function formatTime(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -94,6 +103,15 @@ export default function ActiveWorkout() {
   const [restEndTime, setRestEndTime] = useState<number | null>(null);
   const [completedSets, setCompletedSets] = useState<Record<string, boolean>>({});
   const [defaultRestSeconds, setDefaultRestSeconds] = useState(90);
+  const [activeRestTotalDuration, setActiveRestTotalDuration] = useState<number>(90);
+
+  // Exercise Reorder Modal State
+  const [isReorderModalOpen, setIsReorderModalOpen] = useState(false);
+
+  // Custom Exercise Rest Timer Modal State
+  const [selectedTimerExerciseIdx, setSelectedTimerExerciseIdx] = useState<number | null>(null);
+  const [tempTimerSeconds, setTempTimerSeconds] = useState<number>(90);
+  const [isCustomTimerModalOpen, setIsCustomTimerModalOpen] = useState(false);
 
   // RPE Picker State
   const [rpePickerState, setRpePickerState] = useState<{ exIdx: number; setIdx: number } | null>(null);
@@ -192,6 +210,18 @@ export default function ActiveWorkout() {
     }
   }, [isActive]);
 
+  // Ensure all active exercises have their custom or stored restSeconds
+  useEffect(() => {
+    setActiveExercises((prev) => {
+      const needsRest = prev.some((ex) => !ex.restSeconds);
+      if (!needsRest) return prev;
+      return prev.map((ex) => ({
+        ...ex,
+        restSeconds: ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds),
+      }));
+    });
+  }, [defaultRestSeconds, setActiveExercises]);
+
   // Load catalog on mount/open
   useEffect(() => {
     if (isAddExerciseOpen) {
@@ -236,6 +266,52 @@ export default function ActiveWorkout() {
     }
   }, [shouldOverwrite, activeKeypad, keypadHighlightTrigger]);
 
+  // Screen Wake Lock API to prevent phone screen from automatically turning off during workout
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  const wakeLockRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!isActive) {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+      return;
+    }
+
+    const requestWakeLock = async () => {
+      try {
+        if (typeof navigator !== "undefined" && "wakeLock" in navigator && !wakeLockRef.current) {
+          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+          wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+          wakeLockRef.current.addEventListener("release", () => {
+            wakeLockRef.current = null;
+          });
+          console.log("Screen Wake Lock active: display will stay on during workout");
+        }
+      } catch (err) {
+        console.warn("Screen Wake Lock could not be acquired:", err);
+      }
+    };
+
+    requestWakeLock();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && isActive) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [isActive]);
+
   // Countdown timer logic using absolute timestamps for background resilience
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -253,12 +329,28 @@ export default function ActiveWorkout() {
           gymChime.stopSilence(); // Stopped rest carrier wave
           gymChime.play(); // Play the chime explicitly!
 
+          // Haptic vibration feedback
+          if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+            try {
+              navigator.vibrate([300, 150, 300]);
+            } catch {
+              // ignore vibration error
+            }
+          }
+
+          // Native Service Worker notification for iOS PWA / Android
           if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
             try {
-              new Notification("Tempo di Riposo Completato! 🔔", {
-                body: "Il tuo riposo è terminato, è ora di iniziare la serie successiva!",
-                silent: false,
-              });
+              if ("serviceWorker" in navigator) {
+                navigator.serviceWorker.ready.then((reg) => {
+                  reg.showNotification("Tempo di Riposo Completato! 🔔", {
+                    body: "Il tuo riposo è terminato, è ora di iniziare la serie successiva!",
+                    icon: "/icon-192x192.png",
+                    badge: "/icon-192x192.png",
+                    tag: "rest-timer",
+                  });
+                }).catch(() => {});
+              }
             } catch {
               // ignore notification errors
             }
@@ -668,7 +760,9 @@ export default function ActiveWorkout() {
       }
 
       // Start rest timer with background-resilient end timestamp
-      const duration = defaultRestSeconds;
+      const exerciseRest = activeExercises[exIdx]?.restSeconds;
+      const duration = exerciseRest && exerciseRest > 0 ? exerciseRest : defaultRestSeconds;
+      setActiveRestTotalDuration(duration);
       setRestTimeLeft(duration);
       setIsRestPaused(false);
       setRestEndTime(Date.now() + duration * 1000);
@@ -703,14 +797,34 @@ export default function ActiveWorkout() {
       return nextVal;
     });
 
-    // Save adjusted duration as the new default rest duration
-    setDefaultRestSeconds((prev) => {
-      const nextDefault = Math.max(15, prev + seconds);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("default_rest_seconds", nextDefault.toString());
+    setActiveRestTotalDuration((prev) => Math.max(15, prev + seconds));
+
+    // If resting for a specific exercise, update that exercise's custom rest timer!
+    if (restingSetKey) {
+      const parts = restingSetKey.split("_");
+      const eIdx = parseInt(parts[0], 10);
+      if (activeExercises[eIdx]) {
+        const currentRest = activeExercises[eIdx].restSeconds || defaultRestSeconds;
+        const nextExerciseRest = Math.max(15, currentRest + seconds);
+        setActiveExercises((prev) => {
+          const copy = [...prev];
+          if (copy[eIdx]) {
+            copy[eIdx] = { ...copy[eIdx], restSeconds: nextExerciseRest };
+          }
+          return copy;
+        });
+        storage.setExerciseRestSeconds(activeExercises[eIdx].exerciseId, nextExerciseRest);
       }
-      return nextDefault;
-    });
+    } else {
+      // Save adjusted duration as the new default rest duration
+      setDefaultRestSeconds((prev) => {
+        const nextDefault = Math.max(15, prev + seconds);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("default_rest_seconds", nextDefault.toString());
+        }
+        return nextDefault;
+      });
+    }
   };
 
   const toggleKeepAlive = () => {
@@ -816,6 +930,7 @@ export default function ActiveWorkout() {
           exerciseId: ex.id,
           exerciseName: ex.name,
           sets: [{ weight: 0, reps: 0, setOrder: 1 }],
+          restSeconds: storage.getExerciseRestSeconds(ex.id, defaultRestSeconds),
         },
       ];
     });
@@ -826,6 +941,67 @@ export default function ActiveWorkout() {
   // Remove Exercise from Session
   const removeExercise = (exIdx: number) => {
     setActiveExercises((prev) => prev.filter((_, idx) => idx !== exIdx));
+  };
+
+  // Reorder Exercises in Active Workout
+  const moveExercise = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= activeExercises.length) return;
+
+    setActiveExercises((prev) => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
+
+    // Remap keys in completedSets, weightInputs, timeInputs
+    const remapKeys = <T,>(record: Record<string, T>): Record<string, T> => {
+      const updated: Record<string, T> = {};
+      Object.entries(record).forEach(([k, v]) => {
+        const parts = k.split("_");
+        if (parts.length >= 2) {
+          const eIdx = parseInt(parts[0], 10);
+          const sIdx = parts.slice(1).join("_");
+          if (eIdx === index) {
+            updated[`${targetIndex}_${sIdx}`] = v;
+          } else if (eIdx === targetIndex) {
+            updated[`${index}_${sIdx}`] = v;
+          } else {
+            updated[k] = v;
+          }
+        } else {
+          updated[k] = v;
+        }
+      });
+      return updated;
+    };
+
+    setCompletedSets((prev) => remapKeys(prev));
+    setWeightInputs((prev) => remapKeys(prev));
+    setTimeInputs((prev) => remapKeys(prev));
+
+    if (restingSetKey) {
+      const parts = restingSetKey.split("_");
+      if (parts.length >= 2) {
+        const eIdx = parseInt(parts[0], 10);
+        const sIdx = parts.slice(1).join("_");
+        if (eIdx === index) {
+          setRestingSetKey(`${targetIndex}_${sIdx}`);
+        } else if (eIdx === targetIndex) {
+          setRestingSetKey(`${index}_${sIdx}`);
+        }
+      }
+    }
+
+    if (activeKeypad) {
+      if (activeKeypad.exIdx === index) {
+        setActiveKeypad((prev) => (prev ? { ...prev, exIdx: targetIndex } : null));
+      } else if (activeKeypad.exIdx === targetIndex) {
+        setActiveKeypad((prev) => (prev ? { ...prev, exIdx: index } : null));
+      }
+    }
   };
 
   const handleFinishWorkout = async () => {
@@ -952,6 +1128,7 @@ export default function ActiveWorkout() {
           exerciseId: newEx.id,
           exerciseName: newEx.name,
           sets: [{ weight: 0, reps: 0, setOrder: 1 }],
+          restSeconds: storage.getExerciseRestSeconds(newEx.id, defaultRestSeconds),
         },
       ];
     });
@@ -1108,19 +1285,36 @@ export default function ActiveWorkout() {
           return (
             <div key={ex.exerciseId} className="glass-panel rounded-2xl overflow-hidden border border-white/20 dark:border-white/5">
               <div className="p-4 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-white/10 dark:bg-black/10">
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
-                    className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
-                    title="Tocca per vedere lo storico delle settimane precedenti"
-                  >
-                    <h2 className="text-[17px] font-extrabold text-primary group-hover:underline">{ex.exerciseName}</h2>
-                    <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20 flex items-center gap-0.5 group-hover:bg-primary/20 transition-all uppercase tracking-wider">
-                      <History size={11} /> Storico
-                    </span>
-                  </button>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5 items-center">
+                <div className="flex-1 pr-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
+                      className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
+                      title="Tocca per vedere lo storico delle settimane precedenti"
+                    >
+                      <h2 className="text-[17px] font-extrabold text-primary group-hover:underline">{ex.exerciseName}</h2>
+                      <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20 flex items-center gap-0.5 group-hover:bg-primary/20 transition-all uppercase tracking-wider">
+                        <History size={11} /> Storico
+                      </span>
+                    </button>
+
+                    {/* Custom Exercise Rest Timer Chip */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTimerExerciseIdx(exIdx);
+                        setTempTimerSeconds(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds));
+                        setIsCustomTimerModalOpen(true);
+                      }}
+                      className="text-[9.5px] font-extrabold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/25 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                      title="Personalizza tempo di recupero per questo esercizio"
+                    >
+                      <Timer size={11} />
+                      <span>{formatRestDuration(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds))}</span>
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-1 items-center">
                     {isDuration ? (
                       <>
                         <span>Durata tot: <span className="font-semibold text-primary">{secondsToHHMMSS(ex.sets.reduce((sum, s) => sum + s.reps, 0)) || "00:00"}</span></span>
@@ -1153,13 +1347,48 @@ export default function ActiveWorkout() {
                     )}
                   </div>
                 </div>
-                <button 
-                  onClick={() => removeExercise(exIdx)}
-                  className="p-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 active:scale-95 transition-colors"
-                  aria-label="Rimuovi esercizio"
-                >
-                  <Trash2 size={18} />
-                </button>
+
+                {/* Card Header Actions: Move Up, Move Down, Delete */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => moveExercise(exIdx, "up")}
+                    disabled={exIdx === 0}
+                    className={`p-1.5 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
+                      exIdx === 0
+                        ? "opacity-20 cursor-not-allowed text-gray-400"
+                        : "text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
+                    }`}
+                    title="Sposta esercizio su"
+                    aria-label="Sposta esercizio su"
+                  >
+                    <ChevronUp size={16} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => moveExercise(exIdx, "down")}
+                    disabled={exIdx === activeExercises.length - 1}
+                    className={`p-1.5 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
+                      exIdx === activeExercises.length - 1
+                        ? "opacity-20 cursor-not-allowed text-gray-400"
+                        : "text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
+                    }`}
+                    title="Sposta esercizio giù"
+                    aria-label="Sposta esercizio giù"
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+
+                  <button 
+                    onClick={() => removeExercise(exIdx)}
+                    className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-xl active:scale-95 transition-colors cursor-pointer"
+                    aria-label="Rimuovi esercizio"
+                    title="Elimina esercizio"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
                  <div className="px-4 py-3">
                 {/* Custom CSS Grid table for absolute smooth swipe gestures */}
@@ -1365,7 +1594,7 @@ export default function ActiveWorkout() {
                               {/* Glowing Gradient Collapsing Rest Progress Bar */}
                               <div 
                                 className="absolute top-0.5 bottom-0.5 left-0.5 bg-gradient-to-r from-primary to-blue-500 rounded-lg shadow-[0_0_12px_rgba(0,87,255,0.35)] transition-all duration-1000 ease-linear z-0"
-                                style={{ width: `calc(${(restTimeLeft / defaultRestSeconds) * 100}% - 4px)` }}
+                                style={{ width: `calc(${(restTimeLeft / (activeRestTotalDuration || defaultRestSeconds)) * 100}% - 4px)` }}
                               />
                               
                               {/* Left Adjuster */}
@@ -1438,13 +1667,24 @@ export default function ActiveWorkout() {
           );
         })}
 
-        {/* Global Add Exercise Button at bottom */}
-        <button 
-          onClick={() => setIsAddExerciseOpen(true)}
-          className="w-full py-4 glass-panel bg-white/20 hover:bg-white/30 text-primary font-bold rounded-2xl flex items-center justify-center gap-2 border-dashed border-primary/30 active:scale-95 transition-all"
-        >
-          <Plus size={20} /> Aggiungi Esercizio
-        </button>
+        {/* Global Add Exercise and Reorder Buttons at bottom */}
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setIsAddExerciseOpen(true)}
+            className="flex-1 py-4 glass-panel bg-white/20 hover:bg-white/30 text-primary font-bold rounded-2xl flex items-center justify-center gap-2 border-dashed border-primary/30 active:scale-95 transition-all cursor-pointer"
+          >
+            <Plus size={20} /> Aggiungi Esercizio
+          </button>
+          {activeExercises.length > 1 && (
+            <button
+              onClick={() => setIsReorderModalOpen(true)}
+              className="px-5 py-4 glass-panel bg-white/20 hover:bg-white/30 text-zinc-700 dark:text-zinc-300 font-bold rounded-2xl flex items-center justify-center gap-2 border border-black/5 dark:border-white/10 active:scale-95 transition-all cursor-pointer"
+              title="Riordina tutti gli esercizi"
+            >
+              <ArrowUpDown size={18} /> Riordina
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Rest Timer Panel */}
@@ -1471,13 +1711,17 @@ export default function ActiveWorkout() {
               <button 
                 onClick={toggleKeepAlive}
                 className="text-[10px] text-gray-500 font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-transform"
-                title="Suoneria attiva: Spotify continua a suonare senza interruzioni"
+                title={keepAlive ? "Modalità Background: suona anche a schermo spento / telefono bloccato (iOS sospende Spotify)" : "Modalità Spotify: Spotify non si ferma mai, schermo sempre attivo col timer"}
               >
-                <span>Tempo di Riposo</span>
+                <span>Riposo</span>
                 {keepAlive ? (
-                  <span className="text-primary text-[8px] bg-primary/10 px-1 rounded-full border border-primary/20 leading-none py-0.5 font-sans">🔔 SPOTIFY OK</span>
+                  <span className="text-amber-500 text-[8.5px] bg-amber-500/10 px-1.5 rounded-full border border-amber-500/20 leading-none py-0.5 font-sans font-bold">
+                    🔔 BG SCHERMO SPENTO
+                  </span>
                 ) : (
-                  <span className="text-gray-400 text-[8px] bg-gray-500/10 px-1 rounded-full border border-gray-500/20 leading-none py-0.5 font-sans">SILENZIOSO 🔇</span>
+                  <span className="text-primary text-[8.5px] bg-primary/10 px-1.5 rounded-full border border-primary/20 leading-none py-0.5 font-sans font-bold">
+                    🎧 SPOTIFY (SCHERMO ATTIVO)
+                  </span>
                 )}
               </button>
               <span className="font-mono font-bold text-xl leading-none text-secondary mt-0.5">
@@ -2060,6 +2304,196 @@ export default function ActiveWorkout() {
           </div>
         );
       })()}
+
+      {/* Exercise Reorder Sheet / Modal */}
+      {isReorderModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm glass-panel rounded-3xl p-5 shadow-2xl border border-white/20 dark:border-white/10 flex flex-col max-h-[80vh] animate-in zoom-in-95">
+            <div className="flex justify-between items-center pb-3 border-b border-black/5 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                  <ArrowUpDown size={16} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-foreground">Riordina Esercizi</h3>
+                  <p className="text-[11px] text-gray-500">{activeExercises.length} esercizi nel workout</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsReorderModalOpen(false)}
+                className="p-1.5 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/10 active:scale-95 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Exercise List */}
+            <div className="flex-1 overflow-y-auto space-y-2 py-3 pr-1">
+              {activeExercises.map((ex, idx) => (
+                <div
+                  key={ex.exerciseId}
+                  className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-black flex items-center justify-center shrink-0">
+                      {idx + 1}
+                    </span>
+                    <span className="text-xs font-bold text-foreground truncate">{ex.exerciseName}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => moveExercise(idx, "up")}
+                      disabled={idx === 0}
+                      className={`p-2 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
+                        idx === 0
+                          ? "opacity-20 cursor-not-allowed text-gray-400"
+                          : "text-zinc-700 dark:text-zinc-200 bg-white/40 dark:bg-zinc-800 hover:bg-white/60 dark:hover:bg-zinc-700 cursor-pointer"
+                      }`}
+                      title="Sposta su"
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveExercise(idx, "down")}
+                      disabled={idx === activeExercises.length - 1}
+                      className={`p-2 rounded-xl border border-black/5 dark:border-white/10 transition-all active:scale-90 ${
+                        idx === activeExercises.length - 1
+                          ? "opacity-20 cursor-not-allowed text-gray-400"
+                          : "text-zinc-700 dark:text-zinc-200 bg-white/40 dark:bg-zinc-800 hover:bg-white/60 dark:hover:bg-zinc-700 cursor-pointer"
+                      }`}
+                      title="Sposta giù"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setIsReorderModalOpen(false)}
+              className="w-full py-3 rounded-2xl bg-primary text-white text-xs font-black shadow-md shadow-primary/25 active:scale-95 transition-all mt-2 cursor-pointer"
+            >
+              Fatto
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Exercise Rest Timer Modal */}
+      {isCustomTimerModalOpen && selectedTimerExerciseIdx !== null && activeExercises[selectedTimerExerciseIdx] && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm glass-panel rounded-3xl p-6 shadow-2xl border border-white/20 dark:border-white/10 flex flex-col space-y-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-start">
+              <div>
+                <span className="text-[10px] font-extrabold text-amber-500 uppercase tracking-wider flex items-center gap-1">
+                  <Timer size={12} /> Timer di Riposo
+                </span>
+                <h3 className="text-base font-black text-foreground mt-0.5 line-clamp-1">
+                  {activeExercises[selectedTimerExerciseIdx].exerciseName}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsCustomTimerModalOpen(false)}
+                className="p-1 rounded-full text-gray-400 hover:text-foreground active:scale-90"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Stepper Display */}
+            <div className="flex items-center justify-center gap-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5">
+              <button
+                onClick={() => setTempTimerSeconds((prev) => Math.max(15, prev - 15))}
+                className="w-11 h-11 rounded-full bg-white dark:bg-zinc-800 shadow-md flex items-center justify-center text-sm font-black active:scale-90 transition-transform text-foreground cursor-pointer"
+              >
+                -15s
+              </button>
+              <div className="text-center min-w-[100px]">
+                <div className="text-3xl font-black font-mono text-primary">
+                  {Math.floor(tempTimerSeconds / 60)}:{(tempTimerSeconds % 60).toString().padStart(2, "0")}
+                </div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                  {tempTimerSeconds} secondi
+                </div>
+              </div>
+              <button
+                onClick={() => setTempTimerSeconds((prev) => prev + 15)}
+                className="w-11 h-11 rounded-full bg-white dark:bg-zinc-800 shadow-md flex items-center justify-center text-sm font-black active:scale-90 transition-transform text-foreground cursor-pointer"
+              >
+                +15s
+              </button>
+            </div>
+
+            {/* Quick preset chips */}
+            <div>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Preset Rapidi</span>
+              <div className="grid grid-cols-4 gap-2">
+                {[30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => setTempTimerSeconds(sec)}
+                    className={`py-2 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer ${
+                      tempTimerSeconds === sec
+                        ? "bg-primary text-white shadow-md shadow-primary/30"
+                        : "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-foreground border border-black/5 dark:border-white/5"
+                    }`}
+                  >
+                    {sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsCustomTimerModalOpen(false)}
+                className="flex-1 py-3 rounded-2xl border border-black/10 dark:border-white/10 text-xs font-bold text-gray-500 hover:text-foreground active:scale-95 transition-all cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const ex = activeExercises[selectedTimerExerciseIdx];
+                  if (ex) {
+                    setActiveExercises((prev) => {
+                      const copy = [...prev];
+                      copy[selectedTimerExerciseIdx] = {
+                        ...copy[selectedTimerExerciseIdx],
+                        restSeconds: tempTimerSeconds,
+                      };
+                      return copy;
+                    });
+                    storage.setExerciseRestSeconds(ex.exerciseId, tempTimerSeconds);
+
+                    // If this exercise is currently resting, adjust active rest timer
+                    if (restingSetKey) {
+                      const parts = restingSetKey.split("_");
+                      if (parseInt(parts[0], 10) === selectedTimerExerciseIdx) {
+                        setActiveRestTotalDuration(tempTimerSeconds);
+                        setRestTimeLeft(tempTimerSeconds);
+                        setRestEndTime(Date.now() + tempTimerSeconds * 1000);
+                        gymChime.startSilence(tempTimerSeconds);
+                      }
+                    }
+                  }
+                  setIsCustomTimerModalOpen(false);
+                }}
+                className="flex-1 py-3 rounded-2xl bg-primary text-white text-xs font-black shadow-lg shadow-primary/25 active:scale-95 transition-all cursor-pointer"
+              >
+                Salva Timer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   </>
 );

@@ -10,6 +10,8 @@ class GymChimePlayer {
   private audioCtx: AudioContext | null = null;
   private isUnlocked = false;
   private shortChimeBlobUrl: string | null = null;
+  private htmlSilenceAudio: HTMLAudioElement | null = null;
+  private silenceBlobUrl: string | null = null;
 
   /**
    * Initializes the AudioContext in response to a user gesture.
@@ -29,8 +31,37 @@ class GymChimePlayer {
   }
 
   /**
+   * Generates a 2-second silent WAV blob to keep iOS audio session alive in background mode.
+   */
+  private getSilenceBlobUrl(): string {
+    if (this.silenceBlobUrl) return this.silenceBlobUrl;
+    const sampleRate = 8000;
+    const numSamples = sampleRate * 2;
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    const writeString = (v: DataView, o: number, s: string) => {
+      for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i));
+    };
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    this.silenceBlobUrl = URL.createObjectURL(blob);
+    return this.silenceBlobUrl;
+  }
+
+  /**
    * Unlocks the AudioContext by resuming it on user interaction.
-   * Does NOT start any long audio streams to avoid pausing background apps like Spotify.
    */
   public unlock() {
     if (this.isUnlocked) return;
@@ -43,7 +74,7 @@ class GymChimePlayer {
       }
       
       this.isUnlocked = true;
-      console.log("AudioContext successfully unlocked without interrupting Spotify");
+      console.log("AudioContext successfully unlocked");
     }
   }
 
@@ -131,21 +162,61 @@ class GymChimePlayer {
   }
 
   /**
-   * Optional timer start hook - does NOT play any silent audio so Spotify continues uninterrupted.
+   * Starts playing a background silence loop IF keep_alive_in_background is enabled.
+   * If disabled (Spotify mode), does NOT play audio so Spotify plays 100% uninterrupted.
+   * If enabled (Background mode), keeps the iOS audio session open so the chime fires on time even with screen locked.
    */
   public startSilence(durationSeconds?: number) {
-    // Intentionally no-op: We do NOT play silent background audio during countdown
-    // so that Spotify/Apple Music playback is NEVER interrupted during the rest period.
-    if (durationSeconds) {
-      console.log(`Rest timer started (${durationSeconds}s). Background music (Spotify) continues playing uninterrupted.`);
+    const isKeepAlive = typeof window !== "undefined" && localStorage.getItem("keep_alive_in_background") === "true";
+    if (!isKeepAlive) {
+      if (durationSeconds) {
+        console.log(`Rest timer started (${durationSeconds}s) [Spotify Mode]. Spotify plays uninterrupted.`);
+      }
+      return;
+    }
+
+    this.init();
+
+    // 1. Play looping HTML5 silent audio to hold iOS audio session
+    try {
+      if (!this.htmlSilenceAudio) {
+        this.htmlSilenceAudio = new Audio(this.getSilenceBlobUrl());
+        this.htmlSilenceAudio.loop = true;
+      }
+      this.htmlSilenceAudio.play().catch((e) => {
+        console.warn("Background silence audio play skipped:", e);
+      });
+    } catch (e) {
+      console.warn("Failed to play background silence:", e);
+    }
+
+    // 2. Pre-schedule the chime on AudioContext timeline for background execution
+    if (this.audioCtx && durationSeconds && durationSeconds > 0) {
+      try {
+        if (this.audioCtx.state === "suspended") {
+          this.audioCtx.resume();
+        }
+        const now = this.audioCtx.currentTime;
+        this.synthesizeBellTone(880, now + durationSeconds, 0.35);
+        this.synthesizeBellTone(1109.73, now + durationSeconds + 0.15, 0.45);
+      } catch (e) {
+        console.warn("Failed to pre-schedule chime on AudioContext:", e);
+      }
     }
   }
 
   /**
-   * Optional timer stop hook.
+   * Stops the background silence loop.
    */
   public stopSilence() {
-    // No-op for background stream cleanup
+    try {
+      if (this.htmlSilenceAudio) {
+        this.htmlSilenceAudio.pause();
+        this.htmlSilenceAudio.currentTime = 0;
+      }
+    } catch {
+      // ignore
+    }
   }
 
   /**

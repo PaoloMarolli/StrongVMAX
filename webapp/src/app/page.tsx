@@ -81,6 +81,7 @@ export default function RoutinePage() {
           { weight: 0, reps: 0, setOrder: 2 },
           { weight: 0, reps: 0, setOrder: 3 },
         ], // pre-populate with 3 empty sets for convenience
+        restSeconds: storage.getExerciseRestSeconds(id, 90),
       };
     });
 
