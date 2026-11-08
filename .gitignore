@@ -20,6 +20,12 @@ __pycache__/
 
 # Node / Next.js / Vercel
 node_modules/
+# Service worker PWA generato automaticamente da next-pwa ad ogni build
+webapp/public/sw.js
+webapp/public/sw.js.map
+webapp/public/workbox-*.js
+webapp/public/workbox-*.js.map
+webapp/public/fallback-*.js
 .next/
 out/
 build/

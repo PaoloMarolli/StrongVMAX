@@ -4,13 +4,16 @@ import BottomTabBar from "@/components/BottomTabBar";
 import { WorkoutProvider } from "@/context/WorkoutContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import ActiveWorkout from "@/components/workout/ActiveWorkout";
-import SwipeNavigator from "@/components/SwipeNavigator";
 import AuthProvider from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
   title: "StrongVMAX",
   description: "App per il tracking degli allenamenti in palestra",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -42,7 +45,6 @@ export default function RootLayout({
               </main>
               <BottomTabBar />
               <ActiveWorkout />
-              <SwipeNavigator />
             </WorkoutProvider>
           </ThemeProvider>
         </AuthProvider>

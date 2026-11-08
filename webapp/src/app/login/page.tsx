@@ -15,7 +15,7 @@ export default function LoginPage() {
         if (error === "OAuthSignin" || error === "Configuration") {
           setErrorMsg("Configurazione Google OAuth non completata su Vercel. Le chiavi GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET non sono impostate o sono errate.");
         } else if (error === "Callback") {
-          setErrorMsg("Errore nel callback di Google. Assicurati che nelle impostazioni della Google Console sia impostato come Authorized redirect URI: https://webapp-psi-plum-93.vercel.app/api/auth/callback/google");
+          setErrorMsg(`Errore nel callback di Google. Assicurati che nelle impostazioni della Google Console sia impostato come Authorized redirect URI: ${window.location.origin}/api/auth/callback/google`);
         } else {
           setErrorMsg(`Errore di login: ${error}`);
         }
