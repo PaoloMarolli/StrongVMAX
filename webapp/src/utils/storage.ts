@@ -211,6 +211,43 @@ export const storage = {
     }
   },
 
+  duplicateTemplate(id: string, newName?: string, targetFolderId?: string): WorkoutTemplate | null {
+    const templates = this.getTemplates();
+    const source = templates.find(t => t.id === id);
+    if (!source) return null;
+    const clonedExercises = source.exercises.map(entry =>
+      typeof entry === "string" ? entry : { ...entry }
+    );
+    const duplicated: WorkoutTemplate = {
+      id: "temp_" + Math.random().toString(36).substr(2, 9),
+      name: (newName && newName.trim()) ? newName.trim() : source.name,
+      exercises: clonedExercises,
+      folderId: targetFolderId !== undefined ? (targetFolderId || undefined) : source.folderId,
+    };
+    templates.push(duplicated);
+    if (isClient()) {
+      localStorage.setItem("vmax_templates", JSON.stringify(templates));
+    }
+    return duplicated;
+  },
+
+  moveTemplate(id: string, targetFolderId?: string, newName?: string): WorkoutTemplate | null {
+    const templates = this.getTemplates();
+    const index = templates.findIndex(t => t.id === id);
+    if (index === -1) return null;
+    const existing = templates[index];
+    const updated: WorkoutTemplate = {
+      ...existing,
+      name: (newName && newName.trim()) ? newName.trim() : existing.name,
+      folderId: targetFolderId || undefined,
+    };
+    templates[index] = updated;
+    if (isClient()) {
+      localStorage.setItem("vmax_templates", JSON.stringify(templates));
+    }
+    return updated;
+  },
+
   // --- FOLDERS ---
   getFolders(): WorkoutFolder[] {
     if (!isClient()) return [];

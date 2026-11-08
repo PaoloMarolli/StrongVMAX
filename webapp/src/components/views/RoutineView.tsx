@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2, Timer, Target, Search } from "lucide-react";
+import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2, Timer, Target, Search, Copy, ArrowRightLeft } from "lucide-react";
 import { useWorkout } from "@/context/WorkoutContext";
 import { storage, WorkoutTemplate, WorkoutFolder, Exercise, WorkoutExercise, WorkoutSet, TemplateExerciseConfig, normalizeTemplateExercise } from "@/utils/storage";
 import ThemeQuickToggle from "@/components/ThemeQuickToggle";
@@ -54,6 +54,21 @@ export default function RoutineView() {
   const [folderParentId, setFolderParentId] = useState<string>("");
   const [editingFolder, setEditingFolder] = useState<WorkoutFolder | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string>("");
+
+  // Duplicate / Move Routine Modal State
+  const [dupTargetTemplate, setDupTargetTemplate] = useState<WorkoutTemplate | null>(null);
+  const [dupActionMode, setDupActionMode] = useState<"duplicate" | "move">("duplicate");
+  const [dupRoutineName, setDupRoutineName] = useState<string>("");
+  const [dupDestMode, setDupDestMode] = useState<"existing" | "new_subfolder" | "new_folder">("existing");
+  const [dupSelectedFolderId, setDupSelectedFolderId] = useState<string>("");
+  const [dupParentFolderId, setDupParentFolderId] = useState<string>("");
+  const [dupNewSubfolderName, setDupNewSubfolderName] = useState<string>("");
+  const [dupNewRootFolderName, setDupNewRootFolderName] = useState<string>("");
+
+  // Duplicate Entire Subfolder (Week) Modal State
+  const [dupSubfolderSource, setDupSubfolderSource] = useState<WorkoutFolder | null>(null);
+  const [dupSubfolderNewName, setDupSubfolderNewName] = useState<string>("");
+  const [dupSubfolderParentId, setDupSubfolderParentId] = useState<string>("");
 
   // Load templates and exercises from local-first storage
   const loadData = () => {
@@ -343,6 +358,145 @@ export default function RoutineView() {
     }
   };
 
+  // Open Duplicate / Move Modal for a Routine
+  const openDuplicateModal = (template: WorkoutTemplate, mode: "duplicate" | "move" = "duplicate") => {
+    setDupTargetTemplate(template);
+    setDupActionMode(mode);
+    setDupRoutineName(template.name);
+    setDupSelectedFolderId(template.folderId || "");
+
+    // Resolve parent root folder if template is inside a folder or subfolder
+    let currentRootId = "";
+    if (template.folderId) {
+      const currentFolder = folders.find(f => f.id === template.folderId);
+      if (currentFolder) {
+        currentRootId = currentFolder.parentFolderId || currentFolder.id;
+      }
+    }
+    if (!currentRootId && rootFolders.length > 0) {
+      currentRootId = rootFolders[0].id;
+    }
+
+    setDupParentFolderId(currentRootId);
+    setDupDestMode("existing");
+    setDupNewSubfolderName("");
+    setDupNewRootFolderName("");
+    setBottomBarVisible(false);
+  };
+
+  const closeDuplicateModal = () => {
+    setDupTargetTemplate(null);
+    if (!isDetailOpen && !isEditorOpen) {
+      setBottomBarVisible(true);
+    }
+  };
+
+  // Execute Duplicate or Move Routine
+  const handleExecuteDuplicateOrMove = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dupTargetTemplate || !dupRoutineName.trim()) return;
+
+    let finalFolderId: string | undefined = undefined;
+    const foldersToExpand: Record<string, boolean> = {};
+
+    if (dupDestMode === "existing") {
+      finalFolderId = dupSelectedFolderId || undefined;
+      if (finalFolderId) {
+        foldersToExpand[finalFolderId] = true;
+        const found = folders.find(f => f.id === finalFolderId);
+        if (found?.parentFolderId) {
+          foldersToExpand[found.parentFolderId] = true;
+        }
+      }
+    } else if (dupDestMode === "new_subfolder") {
+      if (!dupNewSubfolderName.trim()) return;
+      const parentId = dupParentFolderId || undefined;
+      const createdSub = storage.saveFolder(dupNewSubfolderName.trim(), parentId);
+      finalFolderId = createdSub.id;
+      foldersToExpand[createdSub.id] = true;
+      if (parentId) {
+        foldersToExpand[parentId] = true;
+      }
+    } else if (dupDestMode === "new_folder") {
+      if (!dupNewRootFolderName.trim()) return;
+      const createdRoot = storage.saveFolder(dupNewRootFolderName.trim());
+      foldersToExpand[createdRoot.id] = true;
+      if (dupNewSubfolderName.trim()) {
+        const createdSub = storage.saveFolder(dupNewSubfolderName.trim(), createdRoot.id);
+        finalFolderId = createdSub.id;
+        foldersToExpand[createdSub.id] = true;
+      } else {
+        finalFolderId = createdRoot.id;
+      }
+    }
+
+    if (dupActionMode === "duplicate") {
+      storage.duplicateTemplate(dupTargetTemplate.id, dupRoutineName.trim(), finalFolderId || "");
+    } else {
+      const updated = storage.moveTemplate(dupTargetTemplate.id, finalFolderId || "", dupRoutineName.trim());
+      if (updated && detailTemplate && detailTemplate.id === updated.id) {
+        setDetailTemplate(updated);
+      }
+    }
+
+    if (Object.keys(foldersToExpand).length > 0) {
+      setOpenFolderIds(prev => ({ ...prev, ...foldersToExpand }));
+    }
+
+    loadData();
+    closeDuplicateModal();
+  };
+
+  // Open Duplicate Subfolder (Entire Week) Modal
+  const openDuplicateSubfolderModal = (subfolder: WorkoutFolder) => {
+    setDupSubfolderSource(subfolder);
+    // Suggest next week name if it matches S1..S5 or Settimana 1..5
+    const matchS = subfolder.name.match(/^(.*\b[sSwW]\s*)(\d+)(.*)$/);
+    const matchSett = subfolder.name.match(/^(.*settimana\s*)(\d+)(.*)$/i);
+    if (matchS) {
+      const nextNum = parseInt(matchS[2], 10) + 1;
+      setDupSubfolderNewName(`${matchS[1]}${nextNum}${matchS[3]}`);
+    } else if (matchSett) {
+      const nextNum = parseInt(matchSett[2], 10) + 1;
+      setDupSubfolderNewName(`${matchSett[1]}${nextNum}${matchSett[3]}`);
+    } else {
+      setDupSubfolderNewName(`${subfolder.name} (Copia)`);
+    }
+    setDupSubfolderParentId(subfolder.parentFolderId || "");
+    setBottomBarVisible(false);
+  };
+
+  const handleExecuteDuplicateSubfolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dupSubfolderSource || !dupSubfolderNewName.trim()) return;
+
+    const targetParentId = dupSubfolderParentId || undefined;
+    const newSubfolder = storage.saveFolder(dupSubfolderNewName.trim(), targetParentId);
+
+    // Detect if the new subfolder name has a week number (e.g. S2 or Settimana 2) to auto-update routine names
+    const weekNumMatch = dupSubfolderNewName.trim().match(/\b(?:[sSwW]|settimana|week)\s*(\d+)\b/i);
+    const targetWeekTag = weekNumMatch ? `S${weekNumMatch[1]}` : null;
+
+    const sourceTemplates = templates.filter(t => t.folderId === dupSubfolderSource.id);
+    sourceTemplates.forEach(t => {
+      let clonedName = t.name;
+      if (targetWeekTag && /\b[sSwW]\s*[1-9]\b/.test(clonedName)) {
+        clonedName = clonedName.replace(/\b[sSwW]\s*[1-9]\b/, targetWeekTag);
+      }
+      storage.duplicateTemplate(t.id, clonedName, newSubfolder.id);
+    });
+
+    setOpenFolderIds(prev => ({
+      ...prev,
+      [newSubfolder.id]: true,
+      ...(targetParentId ? { [targetParentId]: true } : {}),
+    }));
+
+    setDupSubfolderSource(null);
+    setBottomBarVisible(true);
+    loadData();
+  };
+
   // Handle Inner Exercise creation
   const handleCreateInnerExercise = (e: React.FormEvent) => {
     e.preventDefault();
@@ -549,6 +703,14 @@ export default function RoutineView() {
                               </button>
                               <button
                                 type="button"
+                                onClick={() => openDuplicateSubfolderModal(subfolder)}
+                                className="p-1.5 text-gray-400 hover:text-primary active:scale-90 transition-colors"
+                                title="Duplica intera sottocartella / settimana"
+                              >
+                                <Copy size={12} />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => openEditFolderModal(subfolder)}
                                 className="p-1.5 text-gray-400 hover:text-primary active:scale-90 transition-colors"
                                 title="Rinomina Sottocartella"
@@ -584,9 +746,19 @@ export default function RoutineView() {
                                           {template.exercises.length} Esercizi
                                         </span>
                                       </div>
-                                      <span className="p-1.5 rounded-full bg-secondary/10 text-secondary shrink-0">
-                                        <Dumbbell size={13} fill="currentColor" />
-                                      </span>
+                                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={() => openDuplicateModal(template)}
+                                          className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 active:scale-90 transition-all"
+                                          title="Duplica o sposta routine"
+                                        >
+                                          <Copy size={12} />
+                                        </button>
+                                        <span className="p-1.5 rounded-full bg-secondary/10 text-secondary">
+                                          <Dumbbell size={13} fill="currentColor" />
+                                        </span>
+                                      </div>
                                     </div>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-1 leading-normal font-medium">
                                       {summary || "Nessun esercizio inserito. Tocca per iniziare!"}
@@ -635,9 +807,19 @@ export default function RoutineView() {
                                     {template.exercises.length} Esercizi
                                   </span>
                                 </div>
-                                <span className="p-1.5 rounded-full bg-secondary/10 text-secondary shrink-0">
-                                  <Dumbbell size={14} fill="currentColor" />
-                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openDuplicateModal(template)}
+                                    className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 active:scale-90 transition-all"
+                                    title="Duplica o sposta routine"
+                                  >
+                                    <Copy size={13} />
+                                  </button>
+                                  <span className="p-1.5 rounded-full bg-secondary/10 text-secondary">
+                                    <Dumbbell size={14} fill="currentColor" />
+                                  </span>
+                                </div>
                               </div>
                               <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-2 line-clamp-1 leading-normal font-medium">
                                 {summary || "Nessun esercizio inserito. Tocca per iniziare!"}
@@ -699,9 +881,19 @@ export default function RoutineView() {
                           {template.exercises.length} Esercizi
                         </span>
                       </div>
-                      <span className="p-2 rounded-full bg-secondary/10 text-secondary shrink-0 active:scale-90 transition-transform">
-                        <Dumbbell size={16} fill="currentColor" />
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openDuplicateModal(template)}
+                          className="p-2 rounded-full bg-primary/10 text-primary hover:bg-primary/20 active:scale-90 transition-all"
+                          title="Duplica o sposta routine"
+                        >
+                          <Copy size={15} />
+                        </button>
+                        <span className="p-2 rounded-full bg-secondary/10 text-secondary active:scale-90 transition-transform">
+                          <Dumbbell size={16} fill="currentColor" />
+                        </span>
+                      </div>
                     </div>
                     
                     <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-3 line-clamp-2 leading-relaxed font-medium">
@@ -732,6 +924,15 @@ export default function RoutineView() {
               {detailTemplate.name}
             </h2>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openDuplicateModal(detailTemplate)}
+                className="px-3.5 py-2 rounded-full text-xs font-bold bg-black/5 dark:bg-white/10 text-foreground hover:bg-black/10 active:scale-95 transition-all flex items-center gap-1.5"
+                title="Duplica o Sposta Routine"
+              >
+                <Copy size={13} />
+                Duplica / Sposta
+              </button>
               <button
                 type="button"
                 onClick={handleEditFromDetail}
@@ -1347,7 +1548,7 @@ export default function RoutineView() {
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Nome Cartella / Settimana</label>
                   <input
                     type="text"
-                    placeholder={folderParentId ? "Es. Settimana 1, Blocco A..." : "Es. Scheda Cata 20, Nuova Programmazione..."}
+                    placeholder={folderParentId ? "Es. Settimana 1, Blocco A..." : "Es. Programma Forza, Nuova Programmazione..."}
                     value={folderName}
                     onChange={(e) => setFolderName(e.target.value)}
                     className="glass-input w-full px-4 py-3.5 rounded-xl text-base outline-none font-medium text-foreground bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/45"
@@ -1498,6 +1699,413 @@ export default function RoutineView() {
               Aggiungi al Catalogo & Seleziona
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Modal: Duplica o Sposta Routine */}
+      {dupTargetTemplate && (
+        <div
+          className="fixed inset-0 z-[155] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200"
+          onClick={closeDuplicateModal}
+        >
+          <div
+            className="w-full max-w-md rounded-t-[30px] sm:rounded-[28px] p-5 pb-safe bg-[#f5f6fa] dark:bg-zinc-900 border-t sm:border border-black/10 dark:border-white/10 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto ios-modal-animate"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-black/5 dark:border-white/5">
+              <div className="flex items-center gap-2 min-w-0">
+                <Copy size={18} className="text-primary shrink-0" />
+                <h3 className="text-lg font-extrabold text-foreground truncate">
+                  {dupActionMode === "duplicate" ? "Duplica Routine" : "Sposta Routine"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeDuplicateModal}
+                className="p-2 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 hover:text-foreground active:scale-95 transition-all"
+                aria-label="Chiudi"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteDuplicateOrMove} className="flex flex-col gap-4">
+              {/* Segmented Toggle: Duplica vs Sposta */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setDupActionMode("duplicate")}
+                  className={`py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    dupActionMode === "duplicate"
+                      ? "bg-primary text-white shadow-md shadow-primary/25"
+                      : "text-gray-500 hover:text-foreground"
+                  }`}
+                >
+                  <Copy size={13} />
+                  Crea una Copia
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDupActionMode("move")}
+                  className={`py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    dupActionMode === "move"
+                      ? "bg-primary text-white shadow-md shadow-primary/25"
+                      : "text-gray-500 hover:text-foreground"
+                  }`}
+                >
+                  <ArrowRightLeft size={13} />
+                  Sposta Routine
+                </button>
+              </div>
+
+              {/* Nome della Routine + Quick Week Tag Chips */}
+              <div className="flex flex-col gap-2 bg-white dark:bg-zinc-800/80 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  {dupActionMode === "duplicate" ? "Nome della nuova copia" : "Nome della routine"}
+                </label>
+                <input
+                  type="text"
+                  value={dupRoutineName}
+                  onChange={(e) => setDupRoutineName(e.target.value)}
+                  placeholder="Nome routine..."
+                  className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-bold text-foreground bg-black/5 dark:bg-white/5 outline-none focus:border-primary/45"
+                  required
+                />
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase mr-1">Tag rapido:</span>
+                  {["S1", "S2", "S3", "S4", "S5", "S6"].map((week) => {
+                    const isActive = new RegExp(`\\b${week}\\b`, "i").test(dupRoutineName);
+                    return (
+                      <button
+                        key={week}
+                        type="button"
+                        onClick={() => {
+                          let base = dupRoutineName.trim();
+                          if (/\b[sSwW]\s*\d+\b/.test(base)) {
+                            base = base.replace(/\b[sSwW]\s*\d+\b/, week);
+                          } else {
+                            base = base ? `${base} ${week}` : week;
+                          }
+                          setDupRoutineName(base);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition-all active:scale-90 cursor-pointer ${
+                          isActive
+                            ? "bg-primary text-white shadow-sm"
+                            : "bg-black/5 dark:bg-white/5 text-gray-500 hover:text-foreground"
+                        }`}
+                      >
+                        {week}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Scelta Destinazione */}
+              <div className="flex flex-col gap-2.5 bg-white dark:bg-zinc-800/80 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Destinazione
+                </label>
+
+                {/* 3 Mode Tabs */}
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-black/5 dark:bg-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setDupDestMode("existing")}
+                    className={`py-2 px-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dupDestMode === "existing"
+                        ? "bg-white dark:bg-zinc-700 text-primary shadow-sm"
+                        : "text-gray-500 hover:text-foreground"
+                    }`}
+                  >
+                    Cartella Esistente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDupDestMode("new_subfolder")}
+                    className={`py-2 px-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dupDestMode === "new_subfolder"
+                        ? "bg-white dark:bg-zinc-700 text-amber-500 shadow-sm"
+                        : "text-gray-500 hover:text-foreground"
+                    }`}
+                  >
+                    + Sottocartella
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDupDestMode("new_folder")}
+                    className={`py-2 px-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dupDestMode === "new_folder"
+                        ? "bg-white dark:bg-zinc-700 text-emerald-500 shadow-sm"
+                        : "text-gray-500 hover:text-foreground"
+                    }`}
+                  >
+                    + Nuova Cartella
+                  </button>
+                </div>
+
+                {/* Mode 1: Existing Folder or Subfolder */}
+                {dupDestMode === "existing" && (
+                  <div className="flex flex-col gap-2.5 pt-1 animate-in fade-in duration-150">
+                    {/* Quick sibling subfolders if routine belongs to a root folder */}
+                    {dupParentFolderId && (() => {
+                      const parentObj = folders.find(f => f.id === dupParentFolderId);
+                      const siblingSubs = folders
+                        .filter(f => f.parentFolderId === dupParentFolderId)
+                        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                      if (siblingSubs.length === 0) return null;
+                      return (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">
+                            Sottocartelle di {parentObj?.name || "questa cartella"}:
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {siblingSubs.map(sub => (
+                              <button
+                                key={sub.id}
+                                type="button"
+                                onClick={() => setDupSelectedFolderId(sub.id)}
+                                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer border ${
+                                  dupSelectedFolderId === sub.id
+                                    ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                                    : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                }`}
+                              >
+                                <Folder size={12} />
+                                {sub.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Tutte le cartelle e sottocartelle:</span>
+                      <select
+                        value={dupSelectedFolderId}
+                        onChange={(e) => setDupSelectedFolderId(e.target.value)}
+                        className="glass-input w-full px-3.5 py-3 rounded-xl text-sm font-semibold bg-black/5 dark:bg-white/5 text-foreground outline-none"
+                      >
+                        <option value="">Nessuna cartella (Template Singolo)</option>
+                        {rootFolders.map((root) => {
+                          const rootSubs = folders
+                            .filter(f => f.parentFolderId === root.id)
+                            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                          return (
+                            <React.Fragment key={root.id}>
+                              <option value={root.id}>📁 {root.name}</option>
+                              {rootSubs.map((sub) => (
+                                <option key={sub.id} value={sub.id}>
+                                  &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sub.name}
+                                </option>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mode 2: Create a New Subfolder inside a Root Folder */}
+                {dupDestMode === "new_subfolder" && (
+                  <div className="flex flex-col gap-2.5 pt-1 animate-in fade-in duration-150">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Dentro la Cartella Principale:</span>
+                      {rootFolders.length > 0 ? (
+                        <select
+                          value={dupParentFolderId}
+                          onChange={(e) => setDupParentFolderId(e.target.value)}
+                          className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-black/5 dark:bg-white/5 text-foreground outline-none"
+                        >
+                          {rootFolders.map((root) => (
+                            <option key={root.id} value={root.id}>
+                              📁 {root.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-xs text-amber-500 font-semibold">
+                          Nessuna cartella principale presente. Usa il tab &ldquo;+ Nuova Cartella&rdquo; a destra!
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Nome Nuova Sottocartella:</span>
+                      <input
+                        type="text"
+                        value={dupNewSubfolderName}
+                        onChange={(e) => setDupNewSubfolderName(e.target.value)}
+                        placeholder="Es. Settimana 2, S2, Blocco B..."
+                        className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-bold bg-black/5 dark:bg-white/5 text-foreground outline-none focus:border-amber-500"
+                        required
+                      />
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        {["Settimana 1", "Settimana 2", "Settimana 3", "Settimana 4", "Settimana 5", "Settimana 6"].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setDupNewSubfolderName(preset)}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all active:scale-90 cursor-pointer ${
+                              dupNewSubfolderName === preset
+                                ? "bg-amber-500 text-white"
+                                : "bg-black/5 dark:bg-white/5 text-gray-500 hover:text-foreground"
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mode 3: Create a Brand New Root Folder (and optional Subfolder) */}
+                {dupDestMode === "new_folder" && (
+                  <div className="flex flex-col gap-2.5 pt-1 animate-in fade-in duration-150">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Nome Nuova Cartella Principale:</span>
+                      <input
+                        type="text"
+                        value={dupNewRootFolderName}
+                        onChange={(e) => setDupNewRootFolderName(e.target.value)}
+                        placeholder="Es. Nuovo Programma, Blocco Ipertrofia..."
+                        className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-bold bg-black/5 dark:bg-white/5 text-foreground outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Sottocartella iniziale (Opzionale):</span>
+                      <input
+                        type="text"
+                        value={dupNewSubfolderName}
+                        onChange={(e) => setDupNewSubfolderName(e.target.value)}
+                        placeholder="Es. Settimana 1 (lascia vuoto per mettere nella cartella)"
+                        className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-medium bg-black/5 dark:bg-white/5 text-foreground outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-4 rounded-2xl bg-primary hover:bg-primary/95 text-white font-extrabold text-sm shadow-lg shadow-primary/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {dupActionMode === "duplicate" ? (
+                  <>
+                    <Copy size={16} />
+                    Conferma Duplicazione
+                  </>
+                ) : (
+                  <>
+                    <ArrowRightLeft size={16} />
+                    Conferma Spostamento
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Duplica Intera Sottocartella / Settimana */}
+      {dupSubfolderSource && (
+        <div
+          className="fixed inset-0 z-[155] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => {
+            setDupSubfolderSource(null);
+            setBottomBarVisible(true);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-t-[30px] sm:rounded-[28px] p-5 pb-safe bg-[#f5f6fa] dark:bg-zinc-900 border-t sm:border border-black/10 dark:border-white/10 shadow-2xl flex flex-col gap-4 ios-modal-animate"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-3 border-b border-black/5 dark:border-white/5">
+              <div className="flex items-center gap-2 min-w-0">
+                <Copy size={18} className="text-amber-500 shrink-0" />
+                <h3 className="text-lg font-extrabold text-foreground truncate">
+                  Duplica Sottocartella ({dupSubfolderSource.name})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDupSubfolderSource(null);
+                  setBottomBarVisible(true);
+                }}
+                className="p-2 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 hover:text-foreground active:scale-95 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteDuplicateSubfolder} className="flex flex-col gap-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                Verranno duplicate automaticamente anche tutte le <strong>{templates.filter(t => t.folderId === dupSubfolderSource.id).length} routine</strong> contenute in <strong>{dupSubfolderSource.name}</strong>.
+              </p>
+
+              <div className="flex flex-col gap-1.5 bg-white dark:bg-zinc-800/80 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Nome della nuova Sottocartella / Settimana
+                </label>
+                <input
+                  type="text"
+                  value={dupSubfolderNewName}
+                  onChange={(e) => setDupSubfolderNewName(e.target.value)}
+                  placeholder="Es. Settimana 2, S2..."
+                  className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-bold bg-black/5 dark:bg-white/5 text-foreground outline-none focus:border-amber-500"
+                  required
+                  autoFocus
+                />
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  {["Settimana 1", "Settimana 2", "Settimana 3", "Settimana 4", "Settimana 5", "Settimana 6"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setDupSubfolderNewName(preset)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all active:scale-90 cursor-pointer ${
+                        dupSubfolderNewName === preset
+                          ? "bg-amber-500 text-white"
+                          : "bg-black/5 dark:bg-white/5 text-gray-500 hover:text-foreground"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5 bg-white dark:bg-zinc-800/80 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Cartella Principale di Destinazione
+                </label>
+                <select
+                  value={dupSubfolderParentId}
+                  onChange={(e) => setDupSubfolderParentId(e.target.value)}
+                  className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-black/5 dark:bg-white/5 text-foreground outline-none"
+                >
+                  {rootFolders.map((root) => (
+                    <option key={root.id} value={root.id}>
+                      📁 {root.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-4 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-sm shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Copy size={16} />
+                Duplica Sottocartella e Routine
+              </button>
+            </form>
+          </div>
         </div>
       )}
       </ModalPortal>
