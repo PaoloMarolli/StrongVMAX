@@ -37,7 +37,7 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <WorkoutProvider>
-              <main className="min-h-screen pb-20">
+              <main className="min-h-screen w-full overflow-x-hidden">
                 {children}
               </main>
               <BottomTabBar />

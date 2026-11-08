@@ -16,12 +16,22 @@ export interface WorkoutSet {
   type?: string; // "N" (Normal), "W" (Warmup), "F" (Failure), "D" (Dropset)
 }
 
+export interface TemplateExerciseConfig {
+  exerciseId: string;
+  setsCount?: number;   // Number of sets (defaults to 3 if not set)
+  restSeconds?: number; // Custom rest timer in seconds for this exercise in the routine
+  targetReps?: string;  // Target reps or range (e.g. "8-10", "12")
+  targetRpe?: number;   // Target RPE (e.g. 8, 8.5, 9)
+}
+
 export interface WorkoutExercise {
   exerciseId: string;
   exerciseName: string;
   sets: WorkoutSet[];
   feedback?: string;
   restSeconds?: number; // Custom rest timer in seconds for this exercise
+  targetReps?: string;  // Target reps or range
+  targetRpe?: number;   // Target RPE
 }
 
 export interface WorkoutSession {
@@ -36,13 +46,32 @@ export interface WorkoutSession {
 export interface WorkoutTemplate {
   id: string;
   name: string;
-  exercises: string[]; // List of exercise IDs
+  exercises: (string | TemplateExerciseConfig)[]; // List of exercise IDs or detailed configs
   folderId?: string;   // Optional reference to a folder
+}
+
+export function normalizeTemplateExercise(entry: string | TemplateExerciseConfig): TemplateExerciseConfig {
+  if (typeof entry === "string") {
+    return {
+      exerciseId: entry,
+      setsCount: 3,
+      restSeconds: 90,
+    };
+  }
+  return {
+    exerciseId: entry.exerciseId,
+    setsCount: entry.setsCount && entry.setsCount > 0 ? entry.setsCount : 3,
+    restSeconds: entry.restSeconds !== undefined && entry.restSeconds > 0 ? entry.restSeconds : 90,
+    targetReps: entry.targetReps || "",
+    targetRpe: entry.targetRpe,
+  };
 }
 
 export interface WorkoutFolder {
   id: string;
   name: string;
+  parentFolderId?: string; // Optional parent folder ID for nested subfolders
+  createdAt?: number;       // Timestamp for sorting newest-first
 }
 
 const DEFAULT_EXERCISES: Exercise[] = [];
@@ -145,12 +174,12 @@ export const storage = {
     }
   },
 
-  saveTemplate(name: string, exerciseIds: string[], folderId?: string): WorkoutTemplate {
+  saveTemplate(name: string, exercises: (string | TemplateExerciseConfig)[], folderId?: string): WorkoutTemplate {
     const templates = this.getTemplates();
     const newTemplate: WorkoutTemplate = {
       id: "temp_" + Math.random().toString(36).substr(2, 9),
       name,
-      exercises: exerciseIds,
+      exercises,
       folderId,
     };
     templates.push(newTemplate);
@@ -160,10 +189,10 @@ export const storage = {
     return newTemplate;
   },
 
-  updateTemplate(id: string, name: string, exerciseIds: string[], folderId?: string): WorkoutTemplate {
+  updateTemplate(id: string, name: string, exercises: (string | TemplateExerciseConfig)[], folderId?: string): WorkoutTemplate {
     const templates = this.getTemplates();
     const index = templates.findIndex(t => t.id === id);
-    const updatedTemplate: WorkoutTemplate = { id, name, exercises: exerciseIds, folderId };
+    const updatedTemplate: WorkoutTemplate = { id, name, exercises, folderId };
     if (index !== -1) {
       templates[index] = updatedTemplate;
     } else {
@@ -188,32 +217,47 @@ export const storage = {
     const data = localStorage.getItem("vmax_folders");
     if (!data) return [];
     try {
-      return JSON.parse(data);
+      const parsed: WorkoutFolder[] = JSON.parse(data);
+      // Ensure all folders have createdAt for stable newest-first sorting
+      return parsed.map((f, idx) => ({
+        ...f,
+        createdAt: f.createdAt || (Date.now() - (parsed.length - idx) * 1000),
+      }));
     } catch (e) {
       console.error("Failed to parse folders from storage", e);
       return [];
     }
   },
 
-  saveFolder(name: string): WorkoutFolder {
+  saveFolder(name: string, parentFolderId?: string): WorkoutFolder {
     const folders = this.getFolders();
     const newFolder: WorkoutFolder = {
       id: "fold_" + Math.random().toString(36).substr(2, 9),
       name,
+      parentFolderId: parentFolderId || undefined,
+      createdAt: Date.now(),
     };
-    folders.push(newFolder);
+    folders.unshift(newFolder); // Most recent folder first
     if (isClient()) {
       localStorage.setItem("vmax_folders", JSON.stringify(folders));
     }
     return newFolder;
   },
 
-  updateFolder(id: string, name: string): WorkoutFolder {
+  updateFolder(id: string, name: string, parentFolderId?: string): WorkoutFolder {
     const folders = this.getFolders();
     const index = folders.findIndex(f => f.id === id);
-    const updated = { id, name };
+    const existing = index !== -1 ? folders[index] : null;
+    const updated: WorkoutFolder = {
+      id,
+      name,
+      parentFolderId: parentFolderId !== undefined ? (parentFolderId || undefined) : existing?.parentFolderId,
+      createdAt: existing?.createdAt || Date.now(),
+    };
     if (index !== -1) {
       folders[index] = updated;
+    } else {
+      folders.unshift(updated);
     }
     if (isClient()) {
       localStorage.setItem("vmax_folders", JSON.stringify(folders));
@@ -222,11 +266,16 @@ export const storage = {
   },
 
   deleteFolder(id: string): void {
-    const folders = this.getFolders().filter(f => f.id !== id);
+    const folders = this.getFolders();
+    // When deleting a parent folder, subfolders under it have their parentFolderId cleared so they aren't lost
+    const updatedFolders = folders
+      .filter(f => f.id !== id)
+      .map(f => f.parentFolderId === id ? { ...f, parentFolderId: undefined } : f);
+
     if (isClient()) {
-      localStorage.setItem("vmax_folders", JSON.stringify(folders));
+      localStorage.setItem("vmax_folders", JSON.stringify(updatedFolders));
     }
-    // Set folderId to undefined for templates under this folder so they aren't lost
+    // Set folderId to undefined for templates directly under this folder so they aren't lost
     const templates = this.getTemplates();
     let changed = false;
     templates.forEach(t => {

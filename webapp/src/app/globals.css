@@ -34,6 +34,7 @@ body {
     radial-gradient(at 50% 100%, hsla(190,100%,96%,1) 0, transparent 50%);
   background-attachment: fixed;
   min-height: 100vh;
+  overflow-x: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
@@ -189,3 +190,38 @@ html.dark body {
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center top;
 }
+
+/* iOS Pull-Down Menu Spring Animation */
+@keyframes ios-dropdown-spring {
+  0% {
+    opacity: 0;
+    transform: scale(0.68) translateY(-10px);
+    filter: blur(8px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.02) translateY(1px);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0px);
+  }
+}
+
+.ios-dropdown-menu {
+  transform-origin: top right;
+  animation: ios-dropdown-spring 0.34s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+

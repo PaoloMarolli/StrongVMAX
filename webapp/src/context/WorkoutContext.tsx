@@ -21,6 +21,10 @@ type WorkoutContextType = {
   isMinimized: boolean;
   setIsMinimized: (minimized: boolean) => void;
   pageAnimationClass: string;
+  activeTabIndex: number;
+  setActiveTabIndex: (index: number) => void;
+  requestedTabIndex: number | null;
+  switchTab: (index: number) => void;
 };
 
 const WorkoutContext = createContext<WorkoutContextType | undefined>(undefined);
@@ -35,35 +39,31 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [activeExercises, setActiveExercises] = useState<WorkoutExercise[]>([]);
   const [isBottomBarVisible, setBottomBarVisible] = useState(true);
 
-  // Dynamic Page transitions tracking
+  // Active Tab Index for 1:1 ViewPager (0: Routine, 1: Storico, 2: Esercizi)
   const pathname = usePathname();
-  const [pageAnimationClass, setPageAnimationClass] = useState("apple-page");
+  const [activeTabIndex, setActiveTabIndex] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const p = window.location.pathname;
+      if (p === "/history") return 1;
+      if (p === "/exercises") return 2;
+    }
+    return 0;
+  });
+
+  const [requestedTabIndex, setRequestedTabIndex] = useState<number | null>(null);
+
+  const switchTab = (index: number) => {
+    setActiveTabIndex(index);
+    setRequestedTabIndex(index);
+  };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const paths = ["/", "/history", "/exercises"];
-      const lastPath = sessionStorage.getItem("vmax_last_path");
-      
-      if (lastPath && lastPath !== pathname) {
-        const prevIdx = paths.indexOf(lastPath);
-        const curIdx = paths.indexOf(pathname);
-        
-        if (prevIdx !== -1 && curIdx !== -1) {
-          if (curIdx > prevIdx) {
-            setPageAnimationClass("page-slide-right");
-          } else {
-            setPageAnimationClass("page-slide-left");
-          }
-        } else {
-          setPageAnimationClass("apple-page");
-        }
-      } else {
-        setPageAnimationClass("apple-page");
-      }
-      
-      sessionStorage.setItem("vmax_last_path", pathname);
-    }
+    if (pathname === "/history") setActiveTabIndex(1);
+    else if (pathname === "/exercises") setActiveTabIndex(2);
+    else if (pathname === "/") setActiveTabIndex(0);
   }, [pathname]);
+
+  const pageAnimationClass = "";
 
   // Restore active session details on mount if they exist in localStorage
   useEffect(() => {
@@ -221,6 +221,10 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         isMinimized,
         setIsMinimized,
         pageAnimationClass,
+        activeTabIndex,
+        setActiveTabIndex,
+        requestedTabIndex,
+        switchTab,
       }}
     >
       {children}

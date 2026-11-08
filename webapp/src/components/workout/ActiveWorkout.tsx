@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History, ChevronUp, ChevronDown, Timer, ArrowUpDown } from "lucide-react";
+import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History, ChevronUp, ChevronDown, Timer, ArrowUpDown, MoreHorizontal, Download } from "lucide-react";
 import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
 import { useSession, signIn } from "next-auth/react";
-import { gymChime } from "@/utils/audio";
 
 function formatRestDuration(seconds?: number): string {
   if (!seconds || seconds <= 0) return "90s";
@@ -66,6 +65,12 @@ function GoogleSheetsLogo({ size = 18 }: { size?: number }) {
   );
 }
 
+function triggerIOSNativeTimer(seconds: number) {
+  if (typeof window === "undefined" || seconds <= 0) return;
+  const shortcutName = encodeURIComponent("StrongVMAX Timer");
+  window.location.href = `shortcuts://run-shortcut?name=${shortcutName}&input=text&text=${seconds}`;
+}
+
 export default function ActiveWorkout() {
   const { 
     isActive, 
@@ -87,12 +92,10 @@ export default function ActiveWorkout() {
   const [syncStatus, setSyncStatus] = useState<"syncing" | "success" | "error" | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState("");
 
-  // Keep alive in background state
-  const [keepAlive, setKeepAlive] = useState(false);
-
   // Edit Workout Name Modal State
   const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
   const [editedWorkoutName, setEditedWorkoutName] = useState("");
+  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
 
   // Exercise History Modal State
   const [selectedHistoryExercise, setSelectedHistoryExercise] = useState<{ id: string; name: string } | null>(null);
@@ -204,8 +207,6 @@ export default function ActiveWorkout() {
         if (storedRest) {
           setDefaultRestSeconds(parseInt(storedRest, 10) || 90);
         }
-        const storedKeepAlive = localStorage.getItem("keep_alive_in_background") === "true";
-        setKeepAlive(storedKeepAlive);
       }
     }
   }, [isActive]);
@@ -228,26 +229,6 @@ export default function ActiveWorkout() {
       setCatalog(storage.getExercises());
     }
   }, [isAddExerciseOpen]);
-
-  // Unlock Web Audio API on first interaction when workout starts
-  useEffect(() => {
-    if (isActive) {
-      const unlockAudio = () => {
-        gymChime.unlock();
-        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-          Notification.requestPermission().catch(() => {});
-        }
-        window.removeEventListener("click", unlockAudio);
-        window.removeEventListener("touchstart", unlockAudio);
-      };
-      window.addEventListener("click", unlockAudio);
-      window.addEventListener("touchstart", unlockAudio);
-      return () => {
-        window.removeEventListener("click", unlockAudio);
-        window.removeEventListener("touchstart", unlockAudio);
-      };
-    }
-  }, [isActive]);
 
   // Highlight active input programmatically when shouldOverwrite is enabled
   useEffect(() => {
@@ -326,35 +307,6 @@ export default function ActiveWorkout() {
           setRestTimeLeft(0);
           setRestingSetKey(null);
           setRestEndTime(null);
-          gymChime.stopSilence(); // Stopped rest carrier wave
-          gymChime.play(); // Play the chime explicitly!
-
-          // Haptic vibration feedback
-          if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-            try {
-              navigator.vibrate([300, 150, 300]);
-            } catch {
-              // ignore vibration error
-            }
-          }
-
-          // Native Service Worker notification for iOS PWA / Android
-          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-            try {
-              if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.ready.then((reg) => {
-                  reg.showNotification("Tempo di Riposo Completato! 🔔", {
-                    body: "Il tuo riposo è terminato, è ora di iniziare la serie successiva!",
-                    icon: "/icon-192x192.png",
-                    badge: "/icon-192x192.png",
-                    tag: "rest-timer",
-                  });
-                }).catch(() => {});
-              }
-            } catch {
-              // ignore notification errors
-            }
-          }
         } else {
           setRestTimeLeft(diff);
         }
@@ -567,7 +519,14 @@ export default function ActiveWorkout() {
 
     if (currentReps === 0) {
       const { inheritedReps } = getInheritedValues(exIdx, setIdx);
-      currentReps = inheritedReps;
+      if (inheritedReps > 0) {
+        currentReps = inheritedReps;
+      } else if (activeExercises[exIdx]?.targetReps) {
+        const parsed = parseInt(activeExercises[exIdx].targetReps || "", 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          currentReps = parsed;
+        }
+      }
     }
 
     const newReps = Math.max(0, currentReps + step);
@@ -767,13 +726,14 @@ export default function ActiveWorkout() {
       setIsRestPaused(false);
       setRestEndTime(Date.now() + duration * 1000);
       setRestingSetKey(key); // Set active resting set
-      gymChime.startSilence(duration); // Start background wave and schedule background chime!
+
+      // Automatically launch native iPhone Timer with the exercise's exact rest seconds
+      triggerIOSNativeTimer(duration);
     } else {
       if (restingSetKey === key) {
         setRestingSetKey(null);
         setRestTimeLeft(0);
         setRestEndTime(null);
-        gymChime.stopSilence(); // Stop background wave
       }
     }
   };
@@ -785,13 +745,11 @@ export default function ActiveWorkout() {
       if (nextVal <= 0) {
         setRestEndTime(null);
         setRestingSetKey(null);
-        gymChime.stopSilence();
         return 0;
       }
 
       if (!isRestPaused) {
         setRestEndTime(Date.now() + nextVal * 1000);
-        gymChime.startSilence(nextVal);
       }
 
       return nextVal;
@@ -824,22 +782,6 @@ export default function ActiveWorkout() {
         }
         return nextDefault;
       });
-    }
-  };
-
-  const toggleKeepAlive = () => {
-    const nextVal = !keepAlive;
-    setKeepAlive(nextVal);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("keep_alive_in_background", nextVal.toString());
-      if (restTimeLeft > 0 && !isRestPaused && restEndTime) {
-        if (nextVal) {
-          const timeLeft = Math.max(0, Math.ceil((restEndTime - Date.now()) / 1000));
-          gymChime.startSilence(timeLeft);
-        } else {
-          gymChime.stopSilence();
-        }
-      }
     }
   };
 
@@ -1026,7 +968,7 @@ export default function ActiveWorkout() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            workoutName,
+            workoutName: workoutName.trim() || editedWorkoutName.trim(),
             exercises: activeExercises,
           }),
         });
@@ -1196,12 +1138,21 @@ export default function ActiveWorkout() {
           visibility: (isMinimized && dragOffset === 0) ? "hidden" : "visible",
         }}
       >
+      {/* Click-outside backdrop for Quick Menu */}
+      {isQuickMenuOpen && (
+        <div
+          className="fixed inset-0 z-[25]"
+          onClick={() => setIsQuickMenuOpen(false)}
+          onTouchStart={() => setIsQuickMenuOpen(false)}
+        />
+      )}
+
       {/* Grab-Handle Header with Drag-to-Minimize gesture */}
       <header 
         onTouchStart={handleHeaderTouchStart}
         onTouchMove={handleHeaderTouchMove}
         onTouchEnd={handleHeaderTouchEnd}
-        className="glass-header flex flex-col items-center px-4 pt-2.5 pb-3 relative cursor-grab active:cursor-grabbing border-b border-black/[0.06] dark:border-white/[0.08]"
+        className="glass-header z-30 flex flex-col items-center px-4 pt-2.5 pb-3 relative cursor-grab active:cursor-grabbing border-b border-black/[0.06] dark:border-white/[0.08]"
       >
         {/* iOS-Style Pill Handle Indicator */}
         <div className="w-10 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700/90 mb-2.5"></div>
@@ -1234,50 +1185,178 @@ export default function ActiveWorkout() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-secondary font-mono text-xs font-bold">{formatTime(durationSeconds)}</span>
               </div>
-              
-              {/* App Shortcuts: Spotify & Google Sheets */}
-              <div className="flex items-center gap-1.5">
-                <a
-                  href="spotify:"
-                  onClick={(e) => {
-                    e.preventDefault();
+            </div>
+
+            {/* Quick Week Selector S1..S6 */}
+            <div className="flex items-center gap-1 mt-1.5">
+              {["S1", "S2", "S3", "S4", "S5", "S6"].map((wk) => {
+                const isSelected = (workoutName || editedWorkoutName).toUpperCase().includes(wk) || 
+                  (!/\b[sSwW]\s*[1-6]\b/i.test(workoutName || editedWorkoutName) && wk === "S1");
+                return (
+                  <button
+                    key={wk}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      let base = (workoutName || editedWorkoutName).trim();
+                      if (/\b[sSwW]\s*[1-6]\b/i.test(base)) {
+                        base = base.replace(/\b[sSwW]\s*[1-6]\b/i, wk);
+                      } else {
+                        base = base ? `${base} ${wk}` : wk;
+                      }
+                      setWorkoutName(base);
+                      setEditedWorkoutName(base);
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide transition-all active:scale-90 ${
+                      isSelected
+                        ? "bg-primary text-white shadow-sm"
+                        : "bg-black/[0.04] dark:bg-white/[0.06] text-gray-500 hover:text-foreground"
+                    }`}
+                  >
+                    {wk}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          
+          <div
+            className="flex items-center gap-2 relative"
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsQuickMenuOpen((prev) => !prev);
+              }}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer border ${
+                isQuickMenuOpen
+                  ? "bg-primary text-white border-primary shadow-md shadow-primary/25 scale-95"
+                  : "bg-black/[0.05] dark:bg-white/[0.08] hover:bg-black/[0.09] dark:hover:bg-white/[0.14] text-foreground border-black/[0.05] dark:border-white/[0.08]"
+              }`}
+              title="Azioni rapide"
+              aria-label="Menu azioni rapide"
+            >
+              <MoreHorizontal size={17} className="stroke-[2.4px]" />
+            </button>
+
+            <button 
+              onClick={handleFinishWorkout} 
+              className="bg-primary hover:bg-primary/95 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-md shadow-primary/20 active:scale-95 transition-all duration-200"
+            >
+              Fine
+            </button>
+
+            {/* Dynamic iOS Pull-Down Menu */}
+            {isQuickMenuOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="ios-dropdown-menu absolute right-0 top-11 z-[130] w-56 rounded-[22px] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-3xl border border-black/[0.08] dark:border-white/[0.12] shadow-[0_18px_45px_rgba(0,0,0,0.22)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.6)] overflow-hidden py-1.5"
+              >
+                <div className="px-3.5 py-1.5 border-b border-black/[0.05] dark:border-white/[0.07]">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    Collegamenti Rapidi
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsQuickMenuOpen(false);
                     window.location.href = "spotify:";
                     setTimeout(() => {
                       window.open("https://open.spotify.com", "_blank");
                     }, 500);
                   }}
-                  className="w-6 h-6 rounded-full bg-[#1DB954]/15 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 flex items-center justify-center text-[#1DB954] active:scale-90 transition-all cursor-pointer shadow-sm"
-                  title="Apri Spotify"
-                  aria-label="Apri Spotify"
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-black/[0.04] dark:hover:bg-white/[0.06] active:bg-black/[0.08] dark:active:bg-white/[0.1] transition-colors cursor-pointer text-left"
                 >
-                  <SpotifyLogo size={13} />
-                </a>
+                  <div className="flex flex-col">
+                    <span className="text-[13.5px] font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                      Spotify
+                    </span>
+                    <span className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-medium">
+                      Apri player musicale
+                    </span>
+                  </div>
+                  <span className="w-8 h-8 rounded-full bg-[#1DB954]/15 text-[#1DB954] flex items-center justify-center shrink-0">
+                    <SpotifyLogo size={16} />
+                  </span>
+                </button>
 
-                <a
-                  href="googlesheets:"
-                  onClick={(e) => {
-                    e.preventDefault();
+                <div className="h-px bg-black/[0.05] dark:bg-white/[0.06] mx-3.5" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsQuickMenuOpen(false);
                     window.location.href = "googlesheets:";
                     setTimeout(() => {
                       window.open("https://docs.google.com/spreadsheets", "_blank");
                     }, 500);
                   }}
-                  className="w-6 h-6 rounded-full bg-[#0F9D58]/15 hover:bg-[#0F9D58]/25 border border-[#0F9D58]/30 flex items-center justify-center active:scale-90 transition-all cursor-pointer shadow-sm"
-                  title="Apri Scheda Cata 19 su Google Sheets"
-                  aria-label="Apri Google Sheets"
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-black/[0.04] dark:hover:bg-white/[0.06] active:bg-black/[0.08] dark:active:bg-white/[0.1] transition-colors cursor-pointer text-left"
                 >
-                  <GoogleSheetsLogo size={13} />
+                  <div className="flex flex-col">
+                    <span className="text-[13.5px] font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                      Google Fogli
+                    </span>
+                    <span className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-medium">
+                      Apri Scheda Cata 20
+                    </span>
+                  </div>
+                  <span className="w-8 h-8 rounded-full bg-[#0F9D58]/15 flex items-center justify-center shrink-0">
+                    <GoogleSheetsLogo size={16} />
+                  </span>
+                </button>
+
+                <div className="h-px bg-black/[0.05] dark:bg-white/[0.06] mx-3.5" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsQuickMenuOpen(false);
+                    const secondsToStart = restTimeLeft > 0 ? restTimeLeft : defaultRestSeconds;
+                    triggerIOSNativeTimer(secondsToStart);
+                  }}
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-black/[0.04] dark:hover:bg-white/[0.06] active:bg-black/[0.08] dark:active:bg-white/[0.1] transition-colors cursor-pointer text-left"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-[13.5px] font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                      Timer iPhone
+                    </span>
+                    <span className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-medium">
+                      Avvia timer ({formatRestDuration(restTimeLeft > 0 ? restTimeLeft : defaultRestSeconds)})
+                    </span>
+                  </div>
+                  <span className="w-8 h-8 rounded-full bg-[#FF9500]/15 text-[#FF9500] flex items-center justify-center shrink-0">
+                    <Timer size={16} className="stroke-[2.3px]" />
+                  </span>
+                </button>
+
+                <div className="h-px bg-black/[0.05] dark:bg-white/[0.06] mx-3.5" />
+
+                <a
+                  href="/StrongVMAX%20Timer.shortcut"
+                  download="StrongVMAX Timer.shortcut"
+                  onClick={() => setIsQuickMenuOpen(false)}
+                  className="w-full px-3.5 py-2 flex items-center justify-between hover:bg-black/[0.04] dark:hover:bg-white/[0.06] active:bg-black/[0.08] dark:active:bg-white/[0.1] transition-colors cursor-pointer text-left"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-[12px] font-semibold text-primary leading-tight">
+                      Configura Timer iOS
+                    </span>
+                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
+                      Installa Comando Rapido (1 tap)
+                    </span>
+                  </div>
+                  <span className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Download size={14} className="stroke-[2.3px]" />
+                  </span>
                 </a>
               </div>
-            </div>
+            )}
           </div>
-          
-          <button 
-            onClick={handleFinishWorkout} 
-            className="bg-primary hover:bg-primary/95 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-md shadow-primary/20 active:scale-95 transition-all duration-200"
-          >
-            Fine
-          </button>
         </div>
       </header>
 
@@ -1320,6 +1399,26 @@ export default function ActiveWorkout() {
                       <Timer size={10} className="stroke-[2.5px]" />
                       <span>{formatRestDuration(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds))}</span>
                     </button>
+
+                    {/* Target Reps Badge */}
+                    {ex.targetReps && (
+                      <span 
+                        className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/25 flex items-center gap-1"
+                        title="Obiettivo ripetizioni per la routine"
+                      >
+                        🎯 {ex.targetReps} reps
+                      </span>
+                    )}
+
+                    {/* Target RPE Badge */}
+                    {ex.targetRpe && (
+                      <span 
+                        className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/25 flex items-center gap-1"
+                        title="Obiettivo RPE per la routine"
+                      >
+                        @{ex.targetRpe} RPE
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -1441,7 +1540,13 @@ export default function ActiveWorkout() {
                       if (isDuration) {
                         repsPlaceholder = inheritedReps > 0 ? secondsToHHMMSS(inheritedReps) : "00:00";
                       } else {
-                        repsPlaceholder = inheritedReps > 0 ? inheritedReps.toString() : "0";
+                        if (inheritedReps > 0) {
+                          repsPlaceholder = inheritedReps.toString();
+                        } else if (ex.targetReps) {
+                          repsPlaceholder = ex.targetReps;
+                        } else {
+                          repsPlaceholder = "0";
+                        }
                       }
 
                       const row = (
@@ -1539,10 +1644,17 @@ export default function ActiveWorkout() {
                                  className={`h-7 min-w-[28px] px-1.5 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center mx-auto active:scale-90 ${
                                    set.rpe !== undefined && set.rpe > 0
                                      ? "bg-primary/15 text-primary border border-primary/25 shadow-sm scale-105" 
-                                     : "text-zinc-400 hover:text-primary bg-zinc-100/80 dark:bg-zinc-900/70"
+                                     : ex.targetRpe
+                                       ? "text-violet-600 dark:text-violet-400 bg-violet-500/10 border border-violet-500/25 hover:bg-violet-500/20"
+                                       : "text-zinc-400 hover:text-primary bg-zinc-100/80 dark:bg-zinc-900/70"
                                  }`}
+                                 title={set.rpe !== undefined && set.rpe > 0 ? `RPE effettivo: ${set.rpe}` : ex.targetRpe ? `Target routine: @${ex.targetRpe}` : "Imposta RPE"}
                                >
-                                 {set.rpe !== undefined && set.rpe > 0 ? set.rpe.toString().replace(".", ",") : "@"}
+                                 {set.rpe !== undefined && set.rpe > 0 
+                                   ? set.rpe.toString().replace(".", ",") 
+                                   : ex.targetRpe 
+                                     ? `@${ex.targetRpe}` 
+                                     : "@"}
                                </button>
                              </div>
 
@@ -1712,11 +1824,9 @@ export default function ActiveWorkout() {
                 if (isRestPaused) {
                   setRestEndTime(Date.now() + restTimeLeft * 1000);
                   setIsRestPaused(false);
-                  gymChime.startSilence(restTimeLeft); // Keep alive and reschedule chime!
                 } else {
                   setRestEndTime(null);
                   setIsRestPaused(true);
-                  gymChime.stopSilence(); // Can go to sleep when paused
                 }
               }}
               className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-all cursor-pointer shrink-0"
@@ -1725,22 +1835,9 @@ export default function ActiveWorkout() {
             </button>
 
             <div className="flex flex-col">
-              <button 
-                onClick={toggleKeepAlive}
-                className="text-[9.5px] font-bold uppercase tracking-wider flex items-center gap-1.5 active:scale-95 transition-transform text-left cursor-pointer"
-                title={keepAlive ? "Modalità Background: suona anche a schermo spento / telefono bloccato (iOS sospende Spotify)" : "Modalità Spotify: Spotify non si ferma mai, schermo sempre attivo col timer"}
-              >
-                <span className="text-zinc-400">Riposo</span>
-                {keepAlive ? (
-                  <span className="text-amber-400 text-[8.5px] bg-amber-400/15 px-1.5 rounded-full border border-amber-400/25 leading-none py-0.5 font-sans font-bold">
-                    🔔 BG SCHERMO SPENTO
-                  </span>
-                ) : (
-                  <span className="text-primary text-[8.5px] bg-primary/20 px-1.5 rounded-full border border-primary/30 leading-none py-0.5 font-sans font-bold">
-                    🎧 SPOTIFY (ATTIVO)
-                  </span>
-                )}
-              </button>
+              <span className="text-[9.5px] font-bold uppercase tracking-wider text-zinc-400">
+                Riposo
+              </span>
               <span className="font-mono font-black text-2xl leading-tight text-white tracking-tight">
                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:
                 {(restTimeLeft % 60).toString().padStart(2, "0")}
@@ -1772,7 +1869,6 @@ export default function ActiveWorkout() {
                 setRestTimeLeft(0);
                 setRestEndTime(null);
                 setRestingSetKey(null);
-                gymChime.stopSilence(); // Stopped rest
               }}
               className="flex items-center gap-1 text-[11px] font-bold text-zinc-300 hover:text-white bg-white/10 hover:bg-white/15 border border-white/10 px-3 py-2 rounded-full active:scale-95 transition-all cursor-pointer shrink-0"
             >
@@ -1861,19 +1957,28 @@ export default function ActiveWorkout() {
             <div className="grid grid-cols-4 gap-2.5 py-2">
               {[10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1].map((val) => {
                 const currentSet = activeExercises[rpePickerState.exIdx]?.sets[rpePickerState.setIdx];
+                const targetRpe = activeExercises[rpePickerState.exIdx]?.targetRpe;
                 const isSelected = currentSet?.rpe === val;
+                const isTarget = targetRpe === val;
                 return (
                   <button
                     key={val}
                     type="button"
                     onClick={() => selectRpe(val)}
-                    className={`py-3 rounded-xl text-sm font-bold border transition-all active:scale-95 ${
+                    className={`py-3 rounded-xl text-sm font-bold border transition-all active:scale-95 relative ${
                       isSelected
                         ? "bg-primary text-white border-primary shadow-md shadow-primary/10"
-                        : "bg-black/5 border-transparent text-foreground hover:bg-black/10"
+                        : isTarget
+                          ? "bg-violet-500/10 border-violet-500/40 text-violet-600 dark:text-violet-400 hover:bg-violet-500/20"
+                          : "bg-black/5 border-transparent text-foreground hover:bg-black/10"
                     }`}
                   >
                     {val.toString().replace(".", ",")}
+                    {isTarget && !isSelected && (
+                      <span className="absolute -top-1.5 -right-1 text-[8px] bg-violet-600 text-white px-1 rounded-full font-extrabold uppercase">
+                        Target
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -2106,7 +2211,7 @@ export default function ActiveWorkout() {
                 </div>
                 <h3 className="text-base font-bold text-primary mt-2">Sincronizzazione</h3>
                 <p className="text-xs text-gray-500 max-w-[240px]">
-                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 19&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
+                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 20&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
                 </p>
               </>
             )}
@@ -2173,14 +2278,14 @@ export default function ActiveWorkout() {
             </div>
 
             <p className="text-xs text-gray-500">
-              Personalizza il nome o la settimana dell&apos;allenamento (es. &ldquo;Petto Dorso W2&rdquo;):
+              Personalizza il nome o la settimana dell&apos;allenamento (es. &ldquo;Petto Dorso S2&rdquo;):
             </p>
 
             <input
               type="text"
               value={editedWorkoutName}
               onChange={(e) => setEditedWorkoutName(e.target.value)}
-              placeholder="Es. Petto Dorso W2..."
+              placeholder="Es. Petto Dorso S2..."
               className="glass-input w-full px-4 py-3 rounded-xl text-base outline-none font-semibold bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10"
               autoFocus
             />
@@ -2189,11 +2294,11 @@ export default function ActiveWorkout() {
             <div className="flex flex-col gap-1.5 pt-1">
               <span className="text-[10px] font-bold text-gray-400 uppercase">Seleziona Settimana:</span>
               <div className="flex flex-wrap gap-1.5">
-                {["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8"].map((week) => {
+                {["S1", "S2", "S3", "S4", "S5", "S6"].map((week) => {
                   const updateWeekName = () => {
                     let base = editedWorkoutName.trim();
-                    if (/\bW\d+\b/i.test(base)) {
-                      base = base.replace(/\bW\d+\b/i, week);
+                    if (/\b(W|S)\d+\b/i.test(base)) {
+                      base = base.replace(/\b(W|S)\d+\b/i, week);
                     } else {
                       base = base ? `${base} ${week}` : week;
                     }
@@ -2506,7 +2611,6 @@ export default function ActiveWorkout() {
                         setActiveRestTotalDuration(tempTimerSeconds);
                         setRestTimeLeft(tempTimerSeconds);
                         setRestEndTime(Date.now() + tempTimerSeconds * 1000);
-                        gymChime.startSilence(tempTimerSeconds);
                       }
                     }
                   }
