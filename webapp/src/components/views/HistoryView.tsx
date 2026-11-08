@@ -5,7 +5,7 @@ import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet, calcula
 import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, Copy } from "lucide-react";
 import { useSession, signOut, signIn } from "next-auth/react";
 import ThemeToggle from "@/components/ThemeToggle";
 import ThemeQuickToggle from "@/components/ThemeQuickToggle";
@@ -45,6 +45,48 @@ export default function HistoryView() {
   const [weeklyCount, setWeeklyCount] = useState(0);
   const [activeWeekdays, setActiveWeekdays] = useState<boolean[]>([false, false, false, false, false, false, false]); // Lun (0) a Dom (6)
   const [catalog, setCatalog] = useState<Exercise[]>([]);
+
+  // Backup & Restore states
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [importJsonText, setImportJsonText] = useState("");
+  const [backupCopyFeedback, setBackupCopyFeedback] = useState(false);
+
+  const handleExportBackup = () => {
+    const dataStr = storage.exportBackup();
+    // Copy to clipboard
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(dataStr).then(() => {
+        setBackupCopyFeedback(true);
+        setTimeout(() => setBackupCopyFeedback(false), 3000);
+      }).catch(() => {});
+    }
+    // Also trigger file download
+    try {
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `StrongVMAX-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleImportBackup = () => {
+    if (!importJsonText.trim()) return;
+    const success = storage.importBackup(importJsonText.trim());
+    if (success) {
+      alert("Dati e storico importati con successo! Ricarico l'app...");
+      setIsBackupModalOpen(false);
+      window.location.reload();
+    } else {
+      alert("Errore nell'importazione dei dati. Verifica che il formato JSON sia valido.");
+    }
+  };
 
   // Past Workout Editor States
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -1210,11 +1252,44 @@ export default function HistoryView() {
                     setIsProfileOpen(false);
                     window.location.href = "/login";
                   }}
-                  className="w-full p-3.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold text-left active:scale-[0.98] transition-transform"
+                  className="w-full p-3.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold text-left active:scale-[0.98] transition-transform cursor-pointer"
                 >
                   Connetti Account Google Sheets
                 </button>
               )}
+            </div>
+
+            {/* Backup & Transfer Data Section */}
+            <div className="space-y-2.5">
+              <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Backup & Trasferimento Dati</h4>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportBackup}
+                  className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/10 flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                  title="Scarica e copia un backup completo di tutti i tuoi dati"
+                >
+                  <Download size={18} className="text-primary" />
+                  <span className="text-[11.5px] font-bold text-foreground">
+                    {backupCopyFeedback ? "Copiato! ✅" : "Esporta Dati"}
+                  </span>
+                  <span className="text-[9.5px] text-gray-400 leading-none">Salva o copia JSON</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProfileOpen(false);
+                    setIsBackupModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/10 flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                  title="Ripristina o trasferisci dati incollando un backup"
+                >
+                  <Upload size={18} className="text-emerald-500" />
+                  <span className="text-[11.5px] font-bold text-foreground">Importa Dati</span>
+                  <span className="text-[9.5px] text-gray-400 leading-none">Incolla o ripristina</span>
+                </button>
+              </div>
             </div>
 
             {/* Actions */}
@@ -1236,6 +1311,80 @@ export default function HistoryView() {
                 className="w-full py-3.5 bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 font-bold text-sm rounded-2xl active:scale-95 transition-all duration-200 border border-black/5 dark:border-white/5"
               >
                 Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Backup Modal */}
+      {isBackupModalOpen && (
+        <div 
+          className="fixed inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          onClick={() => setIsBackupModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-sm glass-panel bg-white/95 dark:bg-zinc-900/95 border border-black/10 dark:border-white/10 rounded-[28px] p-5 shadow-2xl flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-black/5 dark:border-white/5 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Upload size={18} className="text-emerald-500" />
+                <h3 className="text-base font-extrabold text-foreground">Importa Dati / Storico</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsBackupModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-gray-500 hover:text-foreground"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+              Incolla qui sotto il codice JSON di backup esportato dalla vecchia app per ripristinare istantaneamente routine, schede e storico degli allenamenti:
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={importJsonText}
+                onChange={(e) => setImportJsonText(e.target.value)}
+                placeholder='Incolla qui il JSON di backup (es. {"vmax_history": ...})'
+                rows={5}
+                className="w-full text-xs font-mono p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-foreground resize-none focus:outline-none focus:border-primary/50"
+              />
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text) setImportJsonText(text);
+                  } catch {
+                    alert("Impossibile leggere gli appunti automaticamente, incolla manualmente nella casella.");
+                  }
+                }}
+                className="py-2 px-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 text-[11px] font-bold text-gray-600 dark:text-gray-300 flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+              >
+                <Copy size={13} /> Incolla da Appunti
+              </button>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsBackupModalOpen(false)}
+                className="flex-1 py-3 rounded-2xl border border-black/10 dark:border-white/10 text-xs font-bold text-gray-500 hover:text-foreground active:scale-95 transition-all cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={handleImportBackup}
+                disabled={!importJsonText.trim()}
+                className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-black shadow-lg shadow-emerald-500/25 active:scale-95 transition-all cursor-pointer"
+              >
+                Ripristina Dati
               </button>
             </div>
           </div>

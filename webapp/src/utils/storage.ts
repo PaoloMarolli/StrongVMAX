@@ -346,6 +346,35 @@ export const storage = {
       localStorage.setItem(`vmax_rest_${exerciseId}`, seconds.toString());
     }
   },
+
+  exportBackup(): string {
+    if (!isClient()) return "{}";
+    const backup: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("vmax_") || key === "default_rest_seconds" || key === "theme")) {
+        backup[key] = localStorage.getItem(key) || "";
+      }
+    }
+    return JSON.stringify(backup, null, 2);
+  },
+
+  importBackup(jsonStr: string): boolean {
+    if (!isClient()) return false;
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (typeof parsed !== "object" || parsed === null) return false;
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "string") {
+          localStorage.setItem(k, v);
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error("Failed to import backup", e);
+      return false;
+    }
+  },
 };
 
 export function calculateSetVolume(weight: number, reps: number, type?: string, isDuration = false): number {

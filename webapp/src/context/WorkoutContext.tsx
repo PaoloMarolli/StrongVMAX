@@ -63,6 +63,23 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     else if (pathname === "/") setActiveTabIndex(0);
   }, [pathname]);
 
+  // URL Hash Auto-Import for easy migration
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash.startsWith("#import=")) {
+      try {
+        const raw = decodeURIComponent(window.location.hash.replace("#import=", ""));
+        const success = storage.importBackup(raw);
+        if (success) {
+          window.history.replaceState(null, "", window.location.pathname);
+          alert("Tutti i tuoi dati e routine sono stati trasferiti con successo! 🎉");
+          window.location.reload();
+        }
+      } catch (e) {
+        console.error("Hash import error:", e);
+      }
+    }
+  }, []);
+
   const pageAnimationClass = "";
 
   // Restore active session details on mount if they exist in localStorage
