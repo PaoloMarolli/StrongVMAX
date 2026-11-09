@@ -107,9 +107,7 @@ StrongVMAX/
 
 1. Import the repository on Vercel.
 2. In **Settings → General → Root Directory**, set `webapp`.
-3. Configure the Google OAuth and NextAuth environment variables in your Vercel project settings.
-4. In **Google Cloud Console → Credentials → OAuth 2.0 Client**, add the *Authorized redirect URI*:
-   `https://strong-vmax.vercel.app/api/auth/callback/google`
+3. *(Optional — only required if you want Google Sheets sync)* Configure the Google OAuth and NextAuth environment variables in your Vercel project settings, and add `https://<your-domain>/api/auth/callback/google` as an *Authorized redirect URI* in **Google Cloud Console → Credentials → OAuth 2.0 Client**.
 
 Every `git push` to `main` automatically deploys a new production version.
 
