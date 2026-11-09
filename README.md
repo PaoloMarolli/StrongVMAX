@@ -1,9 +1,9 @@
 # StrongVMAX
 
-**Tracker di allenamenti in palestra pensato per iPhone, installabile come app dalla schermata Home (PWA).**
-Interfaccia in italiano, ispirata all'app *Strong*, con integrazione diretta con le schede di allenamento su Google Fogli.
+**Gym workout tracker designed for iPhone, installable as a Home Screen app (PWA).**
+Inspired by the *Strong* workout app, featuring direct integration with training programs on Google Sheets.
 
-🔗 **App:** https://strong-vmax.vercel.app
+🔗 **Live App:** https://strong-vmax.vercel.app
 
 ![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
@@ -12,110 +12,110 @@ Interfaccia in italiano, ispirata all'app *Strong*, con integrazione diretta con
 
 ---
 
-## Indice
+## Table of Contents
 
-- [Funzionalità](#funzionalità)
-- [Struttura del progetto](#struttura-del-progetto)
-- [Deploy su Vercel](#deploy-su-vercel)
-- [Installazione su iPhone](#installazione-su-iphone)
-
----
-
-## Funzionalità
-
-L'app ha tre schede principali, navigabili con la tab bar in basso o con uno swipe orizzontale.
-
-### 🏋️ Routine
-- Creazione e modifica di **template di allenamento** (routine).
-- Organizzazione in **cartelle e sottocartelle** (es. `Programma → S1, S2, … S6`).
-- **Duplicazione e spostamento** di singole routine o di intere sottocartelle/settimane verso cartelle esistenti o nuove.
-- Per ogni esercizio della routine: numero di serie, **ripetizioni target**, **RPE target** e **tempo di recupero personalizzato**.
-- Riordino degli esercizi tramite drag & drop.
-- Avvio rapido di un **Workout libero** senza template.
-
-### ⏱️ Allenamento attivo
-- Schermata a tutto schermo, **minimizzabile** con un gesto verso il basso (resta una barra flottante).
-- Timer dell'allenamento sempre attivo, anche cambiando scheda.
-- Tabella serie con **kg**, **reps** (o durata), **RPE** e spunta ✓; colonna con i valori della sessione precedente.
-- Tipi di serie: **Normale**, **W** (riscaldamento, esclusa dal volume), **D** (dropset), **F** (cedimento).
-- **Timer di recupero** automatico alla spunta, regolabile al volo (+/−), con barra di avanzamento.
-- Tastierino numerico personalizzato con stepper, eliminazione serie con swipe.
-- Riordino ed eliminazione degli esercizi, aggiunta dal catalogo o creazione al volo.
-- Campo **Sensazioni / Feedback** per ogni esercizio.
-- Selettore rapido della **settimana** (`S1…S6`) per il collegamento con la scheda su Google Fogli.
-- Menu `•••` con scorciatoie a **Spotify**, **Google Fogli** e **Timer iPhone**.
-- Al termine: riepilogo (durata + volume) e sincronizzazione automatica con Google Fogli (se collegato).
-
-### 📊 Storico
-- Elenco delle sessioni con data, durata, volume ed esercizi.
-- Riepilogo settimanale e **calendario mensile** degli allenamenti (navigabile con swipe).
-- Modifica di una sessione passata e **ri-sincronizzazione** con Google Fogli.
-- Storico per singolo esercizio.
-- Profilo: collegamento account Google, tema chiaro/scuro, **backup e ripristino dei dati** (export/import JSON).
-
-### 📚 Esercizi
-- Catalogo personale degli esercizi, filtrabile per **gruppo muscolare** e **attrezzatura**.
-- Supporto a diversi tipi di bilanciere (olimpico 20 kg, EZ, personalizzato, …).
-
-### Calcolo del volume
-
-```
-volume_serie    = kg × reps          (le serie di riscaldamento "W" valgono 0)
-volume_sessione = somma dei volumi delle serie completate
-```
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Deploy on Vercel](#deploy-on-vercel)
+- [Install on iPhone](#install-on-iphone)
 
 ---
 
-## Struttura del progetto
+## Features
+
+The app is organized into three main tabs, accessible via the bottom tab bar or horizontal swipe gestures.
+
+### 🏋️ Routines
+- Create and edit **workout templates** (routines).
+- Organize routines into **folders and subfolders** (e.g. `Program → W1, W2, … W6`).
+- **Duplicate and move** individual routines or entire subfolders/weeks into existing or new folders.
+- Configure per-exercise sets, **target reps**, **target RPE**, and **custom rest timers**.
+- Reorder exercises via drag & drop.
+- Quick-start an empty **Free Workout** without a template.
+
+### ⏱️ Active Workout
+- Full-screen workout logger, **minimizable** with a swipe-down gesture into a floating bottom bar.
+- Persistent workout elapsed timer across tabs.
+- Set table with **kg**, **reps** (or duration), **RPE**, completion checkmark ✓, and previous session values.
+- Set types: **Normal**, **W** (warm-up, excluded from volume), **D** (dropset), **F** (failure).
+- **Automatic rest timer** triggered on set completion, adjustable on the fly (+/−) with a progress bar.
+- Custom numeric keypad with steppers and swipe-to-delete sets.
+- Reorder or remove exercises, add from the catalog, or create new exercises on the fly.
+- Per-exercise **Notes / Feedback** field.
+- Quick **week selector** (`S1…S6`) for linking sessions to Google Sheets training programs.
+- `•••` action menu with quick shortcuts to **Spotify**, **Google Sheets**, and the native **iPhone Timer**.
+- Post-workout summary (duration + total volume) and automatic Google Sheets synchronization (when connected).
+
+### 📊 History
+- Chronological log of completed workouts with date, duration, total volume, and exercises.
+- Weekly activity summary and **monthly workout calendar** (swipeable across months).
+- Edit past workout sessions and **re-sync** with Google Sheets.
+- Per-exercise performance history.
+- Profile settings: Google account connection, light/dark theme toggle, and **JSON data backup & restore** (export/import).
+
+### 📚 Exercises
+- Custom exercise catalog filterable by **muscle group** and **equipment**.
+- Support for multiple barbell types (Olympic 20 kg, EZ bar, custom weight, etc.).
+
+### Volume Calculation
+
+```
+set_volume     = kg × reps          (warm-up "W" sets count as 0)
+session_volume = sum of completed set volumes
+```
+
+---
+
+## Project Structure
 
 ```
 StrongVMAX/
 ├── README.md
-└── webapp/                         ← applicazione Next.js (Root Directory su Vercel)
+└── webapp/                         ← Next.js application (Root Directory on Vercel)
     ├── public/
-    │   ├── manifest.json           ← configurazione PWA (nome, icone, colori)
-    │   ├── icon.png                ← icona PWA 512×512
-    │   ├── icon-192.png            ← icona PWA 192×192
-    │   ├── apple-touch-icon.png    ← icona schermata Home iOS 180×180
-    │   └── StrongVMAX Timer.shortcut  ← Comando Rapido iOS per il timer nativo
+    │   ├── manifest.json           ← PWA manifest (name, icons, theme colors)
+    │   ├── icon.png                ← PWA icon 512×512
+    │   ├── icon-192.png            ← PWA icon 192×192
+    │   ├── apple-touch-icon.png    ← iOS Home Screen icon 180×180
+    │   └── StrongVMAX Timer.shortcut  ← iOS Shortcut for native timer integration
     └── src/
         ├── app/
-        │   ├── layout.tsx          ← struttura comune a tutte le pagine
-        │   ├── page.tsx            ← scheda Routine
-        │   ├── history/page.tsx    ← scheda Storico
-        │   ├── exercises/page.tsx  ← scheda Esercizi
-        │   ├── login/page.tsx      ← accesso con Google / ospite
+        │   ├── layout.tsx          ← Root layout shared across all pages
+        │   ├── page.tsx            ← Routines tab
+        │   ├── history/page.tsx    ← History tab
+        │   ├── exercises/page.tsx  ← Exercises tab
+        │   ├── login/page.tsx      ← Google sign-in / guest access
         │   └── api/
-        │       ├── auth/[...nextauth]/route.ts  ← login Google
-        │       └── sheets/sync/route.ts         ← sincronizzazione Google Fogli
+        │       ├── auth/[...nextauth]/route.ts  ← Google OAuth handler
+        │       └── sheets/sync/route.ts         ← Google Sheets sync endpoint
         ├── components/
-        │   ├── MainTabSwiper.tsx   ← navigazione a swipe tra le tre schede
-        │   ├── BottomTabBar.tsx    ← tab bar in basso
+        │   ├── MainTabSwiper.tsx   ← Horizontal swipe navigation across tabs
+        │   ├── BottomTabBar.tsx    ← Bottom navigation bar
         │   ├── views/              ← RoutineView, HistoryView, ExercisesView
-        │   └── workout/ActiveWorkout.tsx  ← schermata di allenamento attivo
+        │   └── workout/ActiveWorkout.tsx  ← Active workout screen
         ├── context/
-        │   ├── WorkoutContext.tsx  ← stato globale dell'allenamento in corso
-        │   └── ThemeContext.tsx    ← tema chiaro/scuro
-        ├── lib/auth.ts             ← configurazione NextAuth (Google + refresh token)
-        └── utils/storage.ts        ← lettura/scrittura dei dati nel localStorage
+        │   ├── WorkoutContext.tsx  ← Global state for the active workout
+        │   └── ThemeContext.tsx    ← Light/dark theme state
+        ├── lib/auth.ts             ← NextAuth configuration (Google + token refresh)
+        └── utils/storage.ts        ← LocalStorage read/write helpers
 ```
 
 ---
 
-## Deploy su Vercel
+## Deploy on Vercel
 
-1. Importa il repository su Vercel.
-2. In **Settings → General → Root Directory** imposta `webapp`.
-3. Configura le variabili d'ambiente per Google OAuth e NextAuth nelle impostazioni del progetto Vercel.
-4. Su **Google Cloud Console → Credenziali → Client OAuth** aggiungi come *Authorized redirect URI*:
+1. Import the repository on Vercel.
+2. In **Settings → General → Root Directory**, set `webapp`.
+3. Configure the Google OAuth and NextAuth environment variables in your Vercel project settings.
+4. In **Google Cloud Console → Credentials → OAuth 2.0 Client**, add the *Authorized redirect URI*:
    `https://strong-vmax.vercel.app/api/auth/callback/google`
 
-Da quel momento ogni `git push` su `main` pubblica automaticamente una nuova versione.
+Every `git push` to `main` automatically deploys a new production version.
 
 ---
 
-## Installazione su iPhone
+## Install on iPhone
 
-1. Apri `https://strong-vmax.vercel.app` in **Safari**.
-2. Tocca **Condividi** → **Aggiungi alla schermata Home**.
-3. Apri StrongVMAX direttamente dall'icona sulla schermata Home.
+1. Open `https://strong-vmax.vercel.app` in **Safari**.
+2. Tap **Share** → **Add to Home Screen**.
+3. Launch StrongVMAX directly from your Home Screen icon.
