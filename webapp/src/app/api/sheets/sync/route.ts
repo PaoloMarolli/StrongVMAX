@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
     const matchedSheetMeta = sheetsMeta.find((s) => s.title === sheetName);
     const targetSheetId = matchedSheetMeta ? matchedSheetMeta.sheetId : 0;
 
-    // 4. Determine Day Index (0 = Day 1 Squat, 1 = Day 2 Bench, 2 = Day 3 Deadlift, 3 = Day 4 SBD)
+    // 4. Determine Day Index (0 = Day 1 Squat/Giorno A, 1 = Day 2 Bench/Giorno B, 2 = Day 3 Deadlift/Giorno C, 3 = Day 4 SBD/Giorno D)
     let dayIndex = -1;
 
     if (
@@ -207,71 +207,110 @@ export async function POST(req: NextRequest) {
     ) {
       dayIndex = bodyDayIndex;
     } else {
-      if (
-        nameLower.includes("sbd") ||
-        nameLower.includes("total upper") ||
-        nameLower.includes("richiamo") ||
-        nameLower.includes("full body") ||
-        nameLower.includes("day 4") ||
-        nameLower.includes("giorno 4") ||
-        nameLower.includes("routine 4") ||
-        nameLower.includes("allenamento 4") ||
-        nameLower.includes("quarta routine") ||
-        nameLower.includes("routine d") ||
-        nameLower.includes("allenamento d") ||
-        nameLower.includes("upper b") ||
-        /^(4[\.\)\:\s_-]|d[\.\)\:\s_-])/i.test(workoutName.trim())
-      ) {
-        dayIndex = 3;
-      } else if (
-        nameLower.includes("deadlift") ||
-        nameLower.includes("stacco") ||
-        nameLower.includes("gambe") ||
-        nameLower.includes("lower") ||
-        nameLower.includes("legs") ||
-        nameLower.includes("day 3") ||
-        nameLower.includes("giorno 3") ||
-        nameLower.includes("routine 3") ||
-        nameLower.includes("allenamento 3") ||
-        nameLower.includes("terza routine") ||
-        nameLower.includes("routine c") ||
-        nameLower.includes("allenamento c") ||
-        /^(3[\.\)\:\s_-]|c[\.\)\:\s_-])/i.test(workoutName.trim())
-      ) {
-        dayIndex = 2;
-      } else if (
-        nameLower.includes("bench") ||
-        nameLower.includes("panca") ||
-        nameLower.includes("spalle") ||
-        nameLower.includes("braccia") ||
-        nameLower.includes("day 2") ||
-        nameLower.includes("giorno 2") ||
-        nameLower.includes("routine 2") ||
-        nameLower.includes("allenamento 2") ||
-        nameLower.includes("seconda routine") ||
-        nameLower.includes("routine b") ||
-        nameLower.includes("allenamento b") ||
-        /^(2[\.\)\:\s_-]|b[\.\)\:\s_-])/i.test(workoutName.trim())
-      ) {
-        dayIndex = 1;
-      } else if (
-        nameLower.includes("squat") ||
-        nameLower.includes("petto") ||
-        nameLower.includes("dorso") ||
-        nameLower.includes("day 1") ||
-        nameLower.includes("giorno 1") ||
-        nameLower.includes("routine 1") ||
-        nameLower.includes("allenamento 1") ||
-        nameLower.includes("prima routine") ||
-        nameLower.includes("routine a") ||
-        nameLower.includes("allenamento a") ||
-        nameLower.includes("upper a") ||
-        /^(1[\.\)\:\s_-]|a[\.\)\:\s_-])/i.test(workoutName.trim())
-      ) {
-        dayIndex = 0;
+      // 1. Precise regex matching for Day / Giorno letter or number
+      // Matches "Giorno A", "Giorno 1", "Day A", "Day 1", "Routine A", "Allenamento A"
+      const dayLetterMatch = workoutName.match(/\b(?:giorno|day|routine|allenamento)\s*([a-d1-4])\b/i);
+      if (dayLetterMatch) {
+        const val = dayLetterMatch[1].toLowerCase();
+        if (val === "a" || val === "1") dayIndex = 0;
+        else if (val === "b" || val === "2") dayIndex = 1;
+        else if (val === "c" || val === "3") dayIndex = 2;
+        else if (val === "d" || val === "4") dayIndex = 3;
       }
 
-      // Secondary check: inspect exercises in routine
+      // 2. Prefix matching, e.g. "A - Squat", "1. Petto", "B)", "D:"
+      if (dayIndex === -1) {
+        const prefixMatch = workoutName.trim().match(/^([a-d1-4])[\.\)\:\s_-]/i);
+        if (prefixMatch) {
+          const val = prefixMatch[1].toLowerCase();
+          if (val === "a" || val === "1") dayIndex = 0;
+          else if (val === "b" || val === "2") dayIndex = 1;
+          else if (val === "c" || val === "3") dayIndex = 2;
+          else if (val === "d" || val === "4") dayIndex = 3;
+        }
+      }
+
+      // 3. Keyword matching
+      if (dayIndex === -1) {
+        // Day 1 / Giorno A (Squat / Petto Dorso)
+        if (
+          nameLower.includes("giorno a") ||
+          nameLower.includes("giorno 1") ||
+          nameLower.includes("day 1") ||
+          nameLower.includes("day a") ||
+          nameLower.includes("routine a") ||
+          nameLower.includes("routine 1") ||
+          nameLower.includes("allenamento a") ||
+          nameLower.includes("allenamento 1") ||
+          nameLower.includes("prima routine") ||
+          nameLower.includes("upper a") ||
+          nameLower.includes("petto") ||
+          nameLower.includes("dorso") ||
+          (nameLower.includes("squat") && !nameLower.includes("sbd"))
+        ) {
+          dayIndex = 0;
+        }
+        // Day 2 / Giorno B (Bench / Spalle Braccia)
+        else if (
+          nameLower.includes("giorno b") ||
+          nameLower.includes("giorno 2") ||
+          nameLower.includes("day 2") ||
+          nameLower.includes("day b") ||
+          nameLower.includes("routine b") ||
+          nameLower.includes("routine 2") ||
+          nameLower.includes("allenamento b") ||
+          nameLower.includes("allenamento 2") ||
+          nameLower.includes("seconda routine") ||
+          nameLower.includes("lower a") ||
+          nameLower.includes("spalle") ||
+          nameLower.includes("braccia") ||
+          (nameLower.includes("bench") && !nameLower.includes("sbd")) ||
+          (nameLower.includes("panca") && !nameLower.includes("sbd"))
+        ) {
+          dayIndex = 1;
+        }
+        // Day 3 / Giorno C (Deadlift / Gambe)
+        else if (
+          nameLower.includes("giorno c") ||
+          nameLower.includes("giorno 3") ||
+          nameLower.includes("day 3") ||
+          nameLower.includes("day c") ||
+          nameLower.includes("routine c") ||
+          nameLower.includes("routine 3") ||
+          nameLower.includes("allenamento c") ||
+          nameLower.includes("allenamento 3") ||
+          nameLower.includes("terza routine") ||
+          nameLower.includes("gambe") ||
+          nameLower.includes("lower") ||
+          nameLower.includes("legs") ||
+          (nameLower.includes("deadlift") && !nameLower.includes("sbd")) ||
+          (nameLower.includes("stacco") && !nameLower.includes("sbd"))
+        ) {
+          dayIndex = 2;
+        }
+        // Day 4 / Giorno D (SBD / Total Upper / Richiamo / Full Body)
+        else if (
+          nameLower.includes("giorno d") ||
+          nameLower.includes("giorno 4") ||
+          nameLower.includes("day 4") ||
+          nameLower.includes("day d") ||
+          nameLower.includes("routine d") ||
+          nameLower.includes("routine 4") ||
+          nameLower.includes("allenamento d") ||
+          nameLower.includes("allenamento 4") ||
+          nameLower.includes("quarta routine") ||
+          nameLower.includes("sbd") ||
+          nameLower.includes("total upper") ||
+          nameLower.includes("richiamo") ||
+          nameLower.includes("full body") ||
+          nameLower.includes("upper b") ||
+          nameLower.includes("lower b")
+        ) {
+          dayIndex = 3;
+        }
+      }
+
+      // 4. Secondary check: inspect exercises in routine
       if (dayIndex === -1 && exercises && exercises.length > 0) {
         const exNames = exercises.map((e) => (e.exerciseName || "").toLowerCase());
         const hasSquat = exNames.some((n) => n.includes("squat"));
@@ -290,12 +329,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (dayIndex === -1) {
-        const match = workoutName.match(/\b([1-4])\b/);
-        if (match) {
-          dayIndex = parseInt(match[1], 10) - 1;
-        } else {
-          dayIndex = 0;
-        }
+        dayIndex = 0; // Default Day 1 (Giorno A)
       }
     }
 
@@ -411,6 +445,31 @@ export async function POST(req: NextRequest) {
     );
 
     // 6. Map workout exercises to sheet rows
+    const isHeaderOrMetadataRow = (rowCells?: string[]): boolean => {
+      if (!rowCells || rowCells.length === 0) return true;
+      const colA = (rowCells[0] || "").toLowerCase().trim();
+      if (colA === "" || colA.includes("giorno") || colA.includes("volume") || colA.includes("totale")) {
+        return true;
+      }
+      return rowCells.some((cell) => {
+        if (!cell) return false;
+        const c = cell.toLowerCase().trim();
+        return (
+          c === "esercizio" ||
+          c.includes("esercizio") ||
+          c === "target" ||
+          c === "kg" ||
+          c === "rpe" ||
+          c.includes("feedback") ||
+          c.includes("atleta") ||
+          c === "rest" ||
+          c === "recupero" ||
+          c === "serie" ||
+          c === "reps"
+        );
+      });
+    };
+
     const matchedExToRow = new Map<number, number>();
     const usedRows = new Set<number>();
 
@@ -422,7 +481,7 @@ export async function POST(req: NextRequest) {
 
         for (let r = startRow; r <= Math.min(endRow, rows.length); r++) {
           const rowData = rows[r - 1];
-          if (!rowData) continue;
+          if (!rowData || isHeaderOrMetadataRow(rowData)) continue;
           const colA = (rowData[0] || "").toLowerCase().replace(/[^a-z0-9]/g, "");
           const colB = (rowData[1] || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -444,7 +503,10 @@ export async function POST(req: NextRequest) {
     let curRow = startRow;
     exercises.forEach((ex, exIdx) => {
       if (matchedExToRow.has(exIdx)) return;
-      while (usedRows.has(curRow) && curRow <= endRow) {
+      while (
+        (usedRows.has(curRow) || (rows[curRow - 1] && isHeaderOrMetadataRow(rows[curRow - 1]))) &&
+        curRow <= endRow
+      ) {
         curRow++;
       }
       if (curRow <= endRow) {
