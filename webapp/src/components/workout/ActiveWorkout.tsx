@@ -92,6 +92,8 @@ export default function ActiveWorkout() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"syncing" | "success" | "error" | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState("");
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState("");
+  const [isGuestFinishModalOpen, setIsGuestFinishModalOpen] = useState(false);
 
   // Edit Workout Name Modal State
   const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
@@ -799,9 +801,6 @@ export default function ActiveWorkout() {
         setIsRestPaused(false);
         setRestEndTime(Date.now() + duration * 1000);
         setRestingSetKey(key); // Set active resting set
-
-        // Automatically launch native iPhone Timer with the exercise's exact rest seconds
-        triggerIOSNativeTimer(duration);
       }
     } else {
       setSupersetNextCue(null);
@@ -1026,20 +1025,25 @@ export default function ActiveWorkout() {
     }
   };
 
+  const isGoogleConnected = Boolean(
+    session?.user?.email && session.user.email !== "demo@strongvmax.com"
+  );
+
   const handleFinishWorkout = async () => {
     // If the session token could not be refreshed by NextAuth rotation
     if (session && (session as { error?: string }).error === "RefreshAccessTokenError") {
       setIsSyncing(true);
       setSyncStatus("error");
-      setSyncErrorMsg("Sessione Google scaduta. Scollegati dal tuo profilo nella scheda 'Storico' ed esegui nuovamente l'accesso per ripristinare il collegamento.");
+      setSyncErrorMsg("Sessione Google scaduta. Scollegati dal tuo profilo nella scheda 'Storico' ed esegui nuovamente l'accesso con Google per ripristinare il collegamento.");
       return;
     }
 
-    // If user is logged in with Google and has accessToken, run the remote sync first!
-    if (session && (session as { accessToken?: string }).accessToken) {
+    // If user is connected with Google, run the remote sync to Scheda Cata 21!
+    if (isGoogleConnected) {
       setIsSyncing(true);
       setSyncStatus("syncing");
       setSyncErrorMsg("");
+      setSyncSuccessMsg("");
 
       try {
         const response = await fetch("/api/sheets/sync", {
@@ -1057,6 +1061,7 @@ export default function ActiveWorkout() {
 
         if (response.ok) {
           setSyncStatus("success");
+          setSyncSuccessMsg(data.message || "Fogli Google aggiornato correttamente su Scheda Cata 21!");
           // Wait 1.5 seconds so they can see the success badge before local completion
           setTimeout(() => {
             setIsSyncing(false);
@@ -1067,23 +1072,22 @@ export default function ActiveWorkout() {
           setSyncStatus("error");
           const errMsg = data.error || "Errore sconosciuto di sincronizzazione.";
           if (response.status === 401) {
-            setSyncErrorMsg("Sessione Google scaduta. Re-indirizzamento automatico per l'accesso sicuro...");
-            setTimeout(() => {
-              signIn("google", { callbackUrl: window.location.href });
-            }, 1800);
+            setSyncErrorMsg("Sessione Google non autorizzata o scaduta. Riconnetti il tuo account Google.");
           } else if (response.status === 403 || errMsg.toLowerCase().includes("permission") || errMsg.toLowerCase().includes("insufficient")) {
-            setSyncErrorMsg("Permessi Google insufficienti. Scollegati dal profilo nella scheda 'Storico', accedi di nuovo ed ASSICURATI DI SPUNTARE le caselle dei permessi per Drive e Fogli Google.");
+            setSyncErrorMsg("Permessi Google insufficienti. Scollegati dal profilo nella scheda 'Storico', accedi di nuovo ed assicuratevi di concedere i permessi per Fogli Google e Google Drive.");
+          } else if (response.status === 404) {
+            setSyncErrorMsg(`File non trovato: ${errMsg}\nAssicurati che su Google Drive esista il file 'Scheda Cata 21'.`);
           } else {
             setSyncErrorMsg(errMsg);
           }
         }
       } catch {
         setSyncStatus("error");
-        setSyncErrorMsg("Connessione di rete fallita. Controlla la tua connessione.");
+        setSyncErrorMsg("Connessione di rete fallita. Controlla la tua connessione e riprova.");
       }
     } else {
-      // Not logged in with Google, save locally immediately
-      finishWorkout();
+      // Not logged into Google (Guest / Demo mode)
+      setIsGuestFinishModalOpen(true);
     }
   };
 
@@ -2452,7 +2456,7 @@ export default function ActiveWorkout() {
                 </div>
                 <h3 className="text-base font-bold text-green-600 dark:text-green-400 mt-2">Sincronizzato!</h3>
                 <p className="text-xs text-gray-500 max-w-[240px]">
-                  Fogli Google aggiornato correttamente con i carichi eseguiti. Ottimo lavoro!
+                  {syncSuccessMsg || "Fogli Google aggiornato correttamente con i carichi eseguiti. Ottimo lavoro!"}
                 </p>
               </>
             )}
@@ -2472,7 +2476,14 @@ export default function ActiveWorkout() {
                     onClick={handleFinishWorkout}
                     className="w-full py-3 bg-primary text-white font-bold text-xs rounded-xl active:scale-95 transition-transform"
                   >
-                    Riprova
+                    Riprova Sincronizzazione
+                  </button>
+                  <button
+                    onClick={() => signIn("google", { callbackUrl: window.location.href })}
+                    className="w-full py-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-xs rounded-xl active:scale-95 transition-transform border border-emerald-500/20 flex items-center justify-center gap-1.5"
+                  >
+                    <GoogleSheetsLogo size={15} />
+                    <span>Accedi con Google</span>
                   </button>
                   <button
                     onClick={() => {
@@ -2487,6 +2498,58 @@ export default function ActiveWorkout() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Guest Finish Confirmation Modal */}
+      {isGuestFinishModalOpen && (
+        <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="glass-panel w-full max-w-sm rounded-3xl p-6 flex flex-col gap-4 text-center border border-white/20 dark:border-white/10 shadow-2xl bg-white/95 dark:bg-zinc-900/95 animate-in scale-in duration-200">
+            <div className="w-14 h-14 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20 mx-auto mt-1">
+              <GoogleSheetsLogo size={28} />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-foreground">Salvataggio Allenamento</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                Sei in <strong>Modalità Ospite</strong> (senza account Google). I dati verranno salvati nello storico di questo dispositivo.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 w-full mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGuestFinishModalOpen(false);
+                  finishWorkout();
+                }}
+                className="w-full py-3 bg-primary hover:bg-primary/95 text-white font-bold text-xs rounded-xl active:scale-95 transition-transform shadow-md shadow-primary/20 cursor-pointer"
+              >
+                Salva nello Storico Locale
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  // Save workout locally first, then redirect to Google auth so data is never lost
+                  setIsGuestFinishModalOpen(false);
+                  finishWorkout();
+                  signIn("google", { callbackUrl: window.location.href });
+                }}
+                className="w-full py-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform cursor-pointer"
+              >
+                <GoogleSheetsLogo size={15} />
+                <span>Accedi con Google per sincronizzare</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsGuestFinishModalOpen(false)}
+                className="w-full py-2.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-semibold active:scale-95 transition-transform cursor-pointer"
+              >
+                Annulla e Torna al Workout
+              </button>
+            </div>
           </div>
         </div>
       )}

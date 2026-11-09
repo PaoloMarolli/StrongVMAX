@@ -5,7 +5,7 @@ import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet, calcula
 import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, Copy, Link2 } from "lucide-react";
+import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, Copy, Link2, AlertCircle } from "lucide-react";
 import { useSession, signOut, signIn } from "next-auth/react";
 import ThemeToggle from "@/components/ThemeToggle";
 import ThemeQuickToggle from "@/components/ThemeQuickToggle";
@@ -1022,17 +1022,25 @@ export default function HistoryView() {
               </div>
             )}
 
-            {session && (
+            {session && session.user?.email && session.user.email !== "demo@strongvmax.com" ? (
               <button
                 type="button"
                 onClick={() => handleSyncPastWorkout(editingSession)}
                 disabled={isSyncing}
-                className="w-full py-3.5 bg-gradient-to-r from-primary to-blue-600 hover:from-primary/95 hover:to-blue-600/95 text-white font-bold text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-primary/10 active:scale-95 transition-all duration-200 mb-2 mt-4"
+                className="w-full py-3.5 bg-gradient-to-r from-primary to-blue-600 hover:from-primary/95 hover:to-blue-600/95 text-white font-bold text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-primary/10 active:scale-95 transition-all duration-200 mb-2 mt-4 cursor-pointer"
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2.5" fill="none" className={isSyncing ? "animate-spin" : ""}>
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                 </svg>
-                {isSyncing ? "Sincronizzazione..." : "Sincronizza su Google Sheets"}
+                {isSyncing ? "Sincronizzazione in corso..." : "Sincronizza su Google Sheets (Scheda Cata 21)"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => signIn("google", { callbackUrl: window.location.href })}
+                className="w-full py-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-700 dark:text-amber-400 font-bold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all duration-200 mb-2 mt-4 cursor-pointer"
+              >
+                <span>Accedi con Google per sincronizzare (Scheda Cata 21)</span>
               </button>
             )}
 
@@ -1257,24 +1265,36 @@ export default function HistoryView() {
             <div className="space-y-3">
               <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Integrazioni e Stato</h4>
               
-              {session ? (
+              {session && session.user?.email && session.user.email !== "demo@strongvmax.com" ? (
                 <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-green-500/10 dark:bg-green-500/5 border border-green-500/20 text-green-700 dark:text-green-400">
-                  <CheckCircle2 size={20} className="shrink-0 animate-pulse" />
+                  <CheckCircle2 size={20} className="shrink-0" />
                   <div className="text-xs">
-                    <div className="font-bold">Google Sheets Auto-Sync Attivo</div>
-                    <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati automaticamente su Google Fogli.</div>
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>Google Sheets Auto-Sync Attivo</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-700 dark:text-green-300 font-medium">Scheda Cata 21</span>
+                    </div>
+                    <div className="opacity-90 mt-0.5">I tuoi allenamenti vengono sincronizzati automaticamente su Google Fogli ({session.user.email}).</div>
                   </div>
                 </div>
               ) : (
-                <button
-                  onClick={() => {
-                    setIsProfileOpen(false);
-                    window.location.href = "/login";
-                  }}
-                  className="w-full p-3.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold text-left active:scale-[0.98] transition-transform cursor-pointer"
-                >
-                  Connetti Account Google Sheets
-                </button>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+                    <AlertCircle size={20} className="shrink-0" />
+                    <div className="text-xs">
+                      <div className="font-bold">Modalità Locale (Ospite)</div>
+                      <div className="opacity-90 mt-0.5">I dati sono salvati in locale su questo dispositivo. Per sincronizzare su &apos;Scheda Cata 21&apos;, accedi con Google.</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      signIn("google", { callbackUrl: window.location.href });
+                    }}
+                    className="w-full p-3.5 rounded-2xl bg-primary text-white text-xs font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-md shadow-primary/20 cursor-pointer"
+                  >
+                    <span>Connetti Account Google (Scheda Cata 21)</span>
+                  </button>
+                </div>
               )}
             </div>
 

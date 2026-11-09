@@ -29,21 +29,23 @@ interface GoogleDriveSearchResponse {
   files: GoogleDriveFile[];
 }
 
-
-
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const typedSession = session as { accessToken?: string } | null;
-    
+
     if (!typedSession || !typedSession.accessToken) {
       return NextResponse.json(
-        { error: "Non autorizzato. Effettua l'accesso con Google." },
+        { error: "Non autorizzato. Effettua l'accesso con il tuo account Google per sincronizzare." },
         { status: 401 }
       );
     }
 
-    const body = await req.json() as { workoutName?: string; exercises?: SyncExercise[]; dayIndex?: number };
+    const body = (await req.json()) as {
+      workoutName?: string;
+      exercises?: SyncExercise[];
+      dayIndex?: number;
+    };
     const { workoutName, exercises, dayIndex: bodyDayIndex } = body;
 
     if (!workoutName || !exercises || !Array.isArray(exercises)) {
@@ -55,52 +57,50 @@ export async function POST(req: NextRequest) {
 
     const accessToken = typedSession.accessToken;
 
-    // 1. Search for spreadsheet named "Scheda Cata 21" in user's Drive (non-trashed, latest modified first)
-    let query = encodeURIComponent("name contains 'Scheda Cata 21' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false");
-    let driveRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime)`,
-      {
+    // 1. Search for spreadsheet named "Scheda Cata 21" (or latest "Scheda Cata") in Drive
+    // Supporting Shared Drives, all items, and non-trashed files ordered by modifiedTime desc
+    const searchQueries = [
+      "name contains 'Scheda Cata 21' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false",
+      "name contains 'Cata 21' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false",
+      "name contains 'Scheda Cata' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false",
+      "name contains 'Cata' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false",
+    ];
+
+    let matchedFile: GoogleDriveFile | null = null;
+
+    for (const q of searchQueries) {
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+        q
+      )}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+
+      const driveRes = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
+      });
 
-    if (!driveRes.ok) {
-      const errText = await driveRes.text();
-      return NextResponse.json(
-        { error: `Errore nella ricerca Drive: ${errText}` },
-        { status: driveRes.status }
-      );
-    }
-
-    let driveData = await driveRes.json() as GoogleDriveSearchResponse;
-
-    // Fallback: If "Scheda Cata 21" is not found, search for most recent "Scheda Cata" spreadsheet
-    if (!driveData.files || driveData.files.length === 0) {
-      console.log("Specific 'Scheda Cata 21' not found, searching for latest 'Scheda Cata' file...");
-      query = encodeURIComponent("name contains 'Scheda Cata' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false");
-      driveRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime)`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
       if (driveRes.ok) {
-        driveData = await driveRes.json() as GoogleDriveSearchResponse;
+        const driveData = (await driveRes.json()) as GoogleDriveSearchResponse;
+        if (driveData.files && driveData.files.length > 0) {
+          const with21 = driveData.files.find((f) => f.name.includes("21"));
+          matchedFile = with21 || driveData.files[0];
+          break;
+        }
       }
     }
 
-    if (!driveData.files || driveData.files.length === 0) {
+    if (!matchedFile) {
       return NextResponse.json(
-        { error: "File 'Scheda Cata 21' non trovato su Google Drive. Assicurati che il foglio si chiami 'Scheda Cata 21'." },
+        {
+          error:
+            "File 'Scheda Cata 21' non trovato su Google Drive. Assicurati che esista un foglio Google con 'Scheda Cata 21' nel titolo.",
+        },
         { status: 404 }
       );
     }
 
-    const matchedFile = driveData.files[0];
     const spreadsheetId = matchedFile.id;
     console.log(`Using target Google Spreadsheet '${matchedFile.name}' (ID: ${spreadsheetId})`);
 
-    // 2. Fetch spreadsheet metadata to get all sheet names and IDs dynamically
+    // 2. Fetch spreadsheet metadata to get all sheet names and sheet IDs dynamically
     const metadataRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(title,sheetId)`,
       {
@@ -111,120 +111,126 @@ export async function POST(req: NextRequest) {
     let sheetsMeta: { title: string; sheetId: number }[] = [];
     let sheetNames: string[] = [];
     if (metadataRes.ok) {
-      const metadata = await metadataRes.json() as { sheets?: { properties: { title: string; sheetId: number } }[] };
-      sheetsMeta = (metadata.sheets || []).map(s => s.properties);
-      sheetNames = sheetsMeta.map(s => s.title);
-      console.log("Spreadsheet sheets metadata:", sheetsMeta);
-    } else {
-      console.error("Failed to fetch spreadsheet metadata:", await metadataRes.text());
+      const metadata = (await metadataRes.json()) as {
+        sheets?: { properties: { title: string; sheetId: number } }[];
+      };
+      sheetsMeta = (metadata.sheets || []).map((s) => s.properties);
+      sheetNames = sheetsMeta.map((s) => s.title);
+      console.log("Spreadsheet sheets available:", sheetNames);
     }
 
-    let sheetName = "";
-    if (sheetNames.length > 0) {
-      const nameLower = workoutName.toLowerCase();
-      
-      // A. Check if workoutName contains any full sheet title (case-insensitive)
-      // e.g. sheet is "S1" or "Settimana 1" and workoutName is "Petto Dorso S1"
-      for (const sheet of sheetNames) {
-        if (nameLower.includes(sheet.toLowerCase())) {
-          sheetName = sheet;
-          break;
-        }
-      }
+    if (sheetNames.length === 0) {
+      return NextResponse.json(
+        { error: "Impossibile leggere i fogli della scheda Google. Verifica i permessi di lettura." },
+        { status: 500 }
+      );
+    }
 
-      // B. If not matched, try matching specific patterns to find week number (S1..S6, W1..W6, Settimana 1..6)
-      if (!sheetName) {
-        const patterns = [
-          /\b[sS]\s*([1-6])\b/,       // Matches S1..S6, s 1..s 6
-          /\b[wW]\s*([1-6])\b/,       // Matches W1..W6
-          /settimana\s*([1-6])\b/i,   // Matches Settimana 1..6
-          /week\s*([1-6])\b/i,        // Matches Week 1..6
-        ];
-        
-        for (const pattern of patterns) {
-          const match = workoutName.match(pattern);
-          if (match) {
-            const num = match[1];
-            const foundSheet = sheetNames.find(sheet => {
-              const sheetLower = sheet.toLowerCase();
-              return sheetLower === `s${num}` || sheetLower === `w${num}` || sheetLower === `settimana ${num}` || sheetLower === `week ${num}`;
-            });
-            if (foundSheet) {
-              sheetName = foundSheet;
-              break;
-            }
+    // 3. Resolve target sheet/tab name
+    let sheetName = "";
+    const nameLower = workoutName.toLowerCase();
+
+    // A. Direct containment check
+    for (const sheet of sheetNames) {
+      if (nameLower.includes(sheet.toLowerCase())) {
+        sheetName = sheet;
+        break;
+      }
+    }
+
+    // B. Pattern matching for week number (S1..S12, W1..W12, Settimana 1..12, Sett 1..12, Week 1..12)
+    if (!sheetName) {
+      const patterns = [
+        /\b[sS]\s*([1-9]|1[0-2])\b/,
+        /\b[wW]\s*([1-9]|1[0-2])\b/,
+        /settimana\s*([1-9]|1[0-2])\b/i,
+        /sett\s*([1-9]|1[0-2])\b/i,
+        /week\s*([1-9]|1[0-2])\b/i,
+        /\b([1-9]|1[0-2])\b/,
+      ];
+
+      for (const pattern of patterns) {
+        const match = workoutName.match(pattern);
+        if (match) {
+          const num = match[1];
+          const found = sheetNames.find((sheet) => {
+            const sl = sheet.toLowerCase();
+            return (
+              sl === `s${num}` ||
+              sl === `w${num}` ||
+              sl === `settimana ${num}` ||
+              sl === `sett ${num}` ||
+              sl === `week ${num}` ||
+              sl.includes(`s${num}`) ||
+              sl.includes(`settimana ${num}`) ||
+              sl.includes(`week ${num}`) ||
+              ((sheet.match(/\b\d+\b/g) || []) as string[]).includes(num)
+            );
+          });
+          if (found) {
+            sheetName = found;
+            break;
           }
         }
       }
-
-      // If still not matched, default to sheet S1
-      if (!sheetName) {
-        const defaultS1 = sheetNames.find(s => s.toLowerCase() === "s1" || s.toLowerCase().includes("s1"));
-        if (defaultS1) {
-          sheetName = defaultS1;
-        }
-      }
     }
 
-    // C. Fallback to regex parsing if metadata fetch failed or didn't match
+    // C. Fallback: match default first week or pick the first sheet
     if (!sheetName) {
-      const sMatch = workoutName.match(/\b[sS]\s*([1-6])\b/);
-      const wMatch = workoutName.match(/\b[wW]\s*([1-6])\b/);
-      const settMatch = workoutName.match(/settimana\s*([1-6])\b/i);
-      const weekMatch = workoutName.match(/week\s*([1-6])\b/i);
-      
-      let weekIndex = "1";
-      if (sMatch) {
-        weekIndex = sMatch[1];
-      } else if (wMatch) {
-        weekIndex = wMatch[1];
-      } else if (settMatch) {
-        weekIndex = settMatch[1];
-      } else if (weekMatch) {
-        weekIndex = weekMatch[1];
-      }
-      
-      sheetName = `S${weekIndex}`;
+      const defaultS1 = sheetNames.find((s) => {
+        const sl = s.toLowerCase();
+        return (
+          sl === "s1" ||
+          sl === "settimana 1" ||
+          sl === "sett 1" ||
+          sl === "w1" ||
+          sl.includes("s1") ||
+          sl.includes("settimana 1")
+        );
+      });
+      sheetName = defaultS1 || sheetNames[0];
     }
 
     console.log(`Resolved sheet name for workout '${workoutName}': '${sheetName}'`);
 
-    const matchedSheetMeta = sheetsMeta.find(s => s.title === sheetName);
+    const matchedSheetMeta = sheetsMeta.find((s) => s.title === sheetName);
     const targetSheetId = matchedSheetMeta ? matchedSheetMeta.sheetId : 0;
 
-    // 3. Determine Day Index (0 = Day 1 Squat, 1 = Day 2 Bench, 2 = Day 3 Deadlift, 3 = Day 4 SBD)
-    const nameLower = workoutName.toLowerCase().trim();
+    // 4. Determine Day Index (0 = Day 1 Squat, 1 = Day 2 Bench, 2 = Day 3 Deadlift, 3 = Day 4 SBD)
     let dayIndex = -1;
 
-    if (bodyDayIndex !== undefined && typeof bodyDayIndex === "number" && bodyDayIndex >= 0 && bodyDayIndex <= 3) {
+    if (
+      bodyDayIndex !== undefined &&
+      typeof bodyDayIndex === "number" &&
+      bodyDayIndex >= 0 &&
+      bodyDayIndex <= 3
+    ) {
       dayIndex = bodyDayIndex;
     } else {
-      // 1. Check for Day 4 (SBD / Total Upper / Richiamo / Full Body / Day 4 / Routine 4 / Quarta routine)
       if (
-        nameLower.includes("sbd") || 
-        nameLower.includes("total upper") || 
-        nameLower.includes("richiamo") || 
+        nameLower.includes("sbd") ||
+        nameLower.includes("total upper") ||
+        nameLower.includes("richiamo") ||
         nameLower.includes("full body") ||
-        nameLower.includes("day 4") || 
-        nameLower.includes("giorno 4") || 
+        nameLower.includes("day 4") ||
+        nameLower.includes("giorno 4") ||
         nameLower.includes("routine 4") ||
         nameLower.includes("allenamento 4") ||
         nameLower.includes("quarta routine") ||
         nameLower.includes("routine d") ||
         nameLower.includes("allenamento d") ||
+        nameLower.includes("upper b") ||
         /^(4[\.\)\:\s_-]|d[\.\)\:\s_-])/i.test(workoutName.trim())
       ) {
         dayIndex = 3;
-      }
-      // 2. Check for Day 3 (Deadlift / Stacco / Gambe / Lower / Legs / Day 3 / Routine 3 / Terza routine)
-      else if (
-        nameLower.includes("deadlift") || 
-        nameLower.includes("stacco") || 
-        nameLower.includes("gambe") || 
-        nameLower.includes("lower") || 
+      } else if (
+        nameLower.includes("deadlift") ||
+        nameLower.includes("stacco") ||
+        nameLower.includes("gambe") ||
+        nameLower.includes("lower") ||
         nameLower.includes("legs") ||
-        nameLower.includes("day 3") || 
-        nameLower.includes("giorno 3") || 
+        nameLower.includes("day 3") ||
+        nameLower.includes("giorno 3") ||
         nameLower.includes("routine 3") ||
         nameLower.includes("allenamento 3") ||
         nameLower.includes("terza routine") ||
@@ -233,16 +239,13 @@ export async function POST(req: NextRequest) {
         /^(3[\.\)\:\s_-]|c[\.\)\:\s_-])/i.test(workoutName.trim())
       ) {
         dayIndex = 2;
-      }
-      // 3. Check for Day 2 (Bench / Panca / Spalle Braccia / Day 2 / Routine 2 / Seconda routine)
-      else if (
-        nameLower.includes("bench") || 
-        nameLower.includes("panca") || 
-        nameLower.includes("spalle") || 
-        nameLower.includes("braccia") || 
-        nameLower.includes("upper") || 
-        nameLower.includes("day 2") || 
-        nameLower.includes("giorno 2") || 
+      } else if (
+        nameLower.includes("bench") ||
+        nameLower.includes("panca") ||
+        nameLower.includes("spalle") ||
+        nameLower.includes("braccia") ||
+        nameLower.includes("day 2") ||
+        nameLower.includes("giorno 2") ||
         nameLower.includes("routine 2") ||
         nameLower.includes("allenamento 2") ||
         nameLower.includes("seconda routine") ||
@@ -251,106 +254,249 @@ export async function POST(req: NextRequest) {
         /^(2[\.\)\:\s_-]|b[\.\)\:\s_-])/i.test(workoutName.trim())
       ) {
         dayIndex = 1;
-      }
-      // 4. Check for Day 1 (Squat / Petto Dorso / Day 1 / Routine 1 / Prima routine)
-      else if (
-        nameLower.includes("squat") || 
-        nameLower.includes("petto") || 
-        nameLower.includes("dorso") || 
-        nameLower.includes("day 1") || 
-        nameLower.includes("giorno 1") || 
+      } else if (
+        nameLower.includes("squat") ||
+        nameLower.includes("petto") ||
+        nameLower.includes("dorso") ||
+        nameLower.includes("day 1") ||
+        nameLower.includes("giorno 1") ||
         nameLower.includes("routine 1") ||
         nameLower.includes("allenamento 1") ||
         nameLower.includes("prima routine") ||
         nameLower.includes("routine a") ||
         nameLower.includes("allenamento a") ||
+        nameLower.includes("upper a") ||
         /^(1[\.\)\:\s_-]|a[\.\)\:\s_-])/i.test(workoutName.trim())
       ) {
         dayIndex = 0;
       }
 
-      // Secondary Check: If name was generic, inspect exercise names
+      // Secondary check: inspect exercises in routine
       if (dayIndex === -1 && exercises && exercises.length > 0) {
-        const exNames = exercises.map(e => (e.exerciseName || "").toLowerCase());
-        const hasSquat = exNames.some(n => n.includes("squat"));
-        const hasBench = exNames.some(n => n.includes("bench") || n.includes("panca"));
-        const hasDeadlift = exNames.some(n => n.includes("deadlift") || n.includes("stacco"));
+        const exNames = exercises.map((e) => (e.exerciseName || "").toLowerCase());
+        const hasSquat = exNames.some((n) => n.includes("squat"));
+        const hasBench = exNames.some((n) => n.includes("bench") || n.includes("panca"));
+        const hasDeadlift = exNames.some((n) => n.includes("deadlift") || n.includes("stacco"));
 
         if (hasSquat && (hasBench || hasDeadlift)) {
-          dayIndex = 3; // SBD
+          dayIndex = 3;
         } else if (hasDeadlift && !hasBench) {
-          dayIndex = 2; // Deadlift
+          dayIndex = 2;
         } else if (hasBench && !hasSquat && !hasDeadlift) {
-          dayIndex = 1; // Bench
+          dayIndex = 1;
         } else if (hasSquat && !hasBench && !hasDeadlift) {
-          dayIndex = 0; // Squat
+          dayIndex = 0;
         }
       }
 
-      // Final fallback: search for number 1 to 4 in name, or default to Day 1 (Squat)
       if (dayIndex === -1) {
         const match = workoutName.match(/\b([1-4])\b/);
         if (match) {
           dayIndex = parseInt(match[1], 10) - 1;
         } else {
-          dayIndex = 0; // Default Day 1 (Squat)
+          dayIndex = 0;
         }
       }
     }
 
-    // Exact row specifications for Scheda Cata 21 (identical across S1..S6):
-    // Day 1: Squat, rows 8 to 13
-    // Day 2: Bench, rows 19 to 24
-    // Day 3: Deadlift, rows 30 to 35
-    // Day 4: SBD, rows 41 to 45
     const DAY_CONFIG = [
       { day: 1, name: "Squat", startRow: 8, endRow: 13 },
       { day: 2, name: "Bench", startRow: 19, endRow: 24 },
       { day: 3, name: "Deadlift", startRow: 30, endRow: 35 },
       { day: 4, name: "SBD", startRow: 41, endRow: 45 },
     ];
+    const defaultDayConfig = DAY_CONFIG[dayIndex] || DAY_CONFIG[0];
 
-    const currentConfig = DAY_CONFIG[dayIndex];
-    console.log(`Parsed workout '${workoutName}' -> Day ${currentConfig.day} (${currentConfig.name}): Rows ${currentConfig.startRow} to ${currentConfig.endRow}`);
+    // 5. Fetch sheet cells to inspect dynamic day headers, columns, and exercise rows
+    const sheetRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        sheetName
+      )}!A1:G60`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
 
-    // 4. Construct batch updates for Column D (KG) and Column F (Feedback Atleta)
+    let rows: string[][] = [];
+    if (sheetRes.ok) {
+      const sheetData = (await sheetRes.json()) as { values?: string[][] };
+      rows = sheetData.values || [];
+    }
+
+    // Dynamic detection of feedback column (defaults to F, index 5)
+    let feedbackColLetter = "F";
+    let feedbackColIdx = 5;
+
+    if (rows.length > 0) {
+      for (const row of rows.slice(0, 15)) {
+        row.forEach((cell, cIdx) => {
+          const cl = (cell || "").toLowerCase().trim();
+          if (cl.includes("feedback") || cl.includes("atleta") || cl.includes("comment")) {
+            feedbackColIdx = cIdx;
+            feedbackColLetter = String.fromCharCode(65 + cIdx);
+          }
+        });
+      }
+    }
+
+    // Identify day boundaries dynamically from rows if present
+    let dynamicStartRow = -1;
+    let dynamicEndRow = -1;
+
+    if (rows.length > 0) {
+      const dayHeaders: { dayIdx: number; rowIdx: number }[] = [];
+      rows.forEach((row, rIdx) => {
+        const colA = (row[0] || "").toLowerCase().trim();
+        const colB = (row[1] || "").toLowerCase().trim();
+        const text = `${colA} ${colB}`;
+
+        if (
+          (text.includes("squat") &&
+            !text.includes("jump") &&
+            !text.includes("bulgarian")) ||
+          (text.includes("petto") && text.includes("dorso")) ||
+          text.includes("giorno 1") ||
+          text.includes("giorno a") ||
+          text.includes("day 1") ||
+          text.includes("upper a")
+        ) {
+          dayHeaders.push({ dayIdx: 0, rowIdx: rIdx + 1 });
+        } else if (
+          text.includes("bench") ||
+          text.includes("panca") ||
+          (text.includes("spalle") && text.includes("braccia")) ||
+          text.includes("giorno 2") ||
+          text.includes("giorno b") ||
+          text.includes("day 2") ||
+          text.includes("lower a")
+        ) {
+          dayHeaders.push({ dayIdx: 1, rowIdx: rIdx + 1 });
+        } else if (
+          text.includes("deadlift") ||
+          text.includes("stacco") ||
+          text.includes("gambe") ||
+          text.includes("giorno 3") ||
+          text.includes("giorno c") ||
+          text.includes("day 3") ||
+          text.includes("upper b")
+        ) {
+          dayHeaders.push({ dayIdx: 2, rowIdx: rIdx + 1 });
+        } else if (
+          text.includes("sbd") ||
+          text.includes("total upper") ||
+          text.includes("richiamo") ||
+          text.includes("full body") ||
+          text.includes("giorno 4") ||
+          text.includes("giorno d") ||
+          text.includes("day 4") ||
+          text.includes("lower b")
+        ) {
+          dayHeaders.push({ dayIdx: 3, rowIdx: rIdx + 1 });
+        }
+      });
+
+      const matchedHeader = dayHeaders.find((h) => h.dayIdx === dayIndex);
+      if (matchedHeader) {
+        dynamicStartRow = matchedHeader.rowIdx + 1;
+        const nextHeader = dayHeaders.find((h) => h.rowIdx > matchedHeader.rowIdx);
+        dynamicEndRow = nextHeader ? nextHeader.rowIdx - 1 : matchedHeader.rowIdx + 8;
+      }
+    }
+
+    const startRow = dynamicStartRow > 0 ? dynamicStartRow : defaultDayConfig.startRow;
+    const endRow = dynamicEndRow > 0 ? dynamicEndRow : defaultDayConfig.endRow;
+
+    console.log(
+      `Day ${dayIndex + 1} (${defaultDayConfig.name}): Rows ${startRow} to ${endRow} in sheet '${sheetName}'`
+    );
+
+    // 6. Map workout exercises to sheet rows
+    const matchedExToRow = new Map<number, number>();
+    const usedRows = new Set<number>();
+
+    // Phase 1: Fuzzy / Name matching against sheet rows
+    if (rows.length > 0) {
+      exercises.forEach((ex, exIdx) => {
+        const normEx = ex.exerciseName.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (!normEx) return;
+
+        for (let r = startRow; r <= Math.min(endRow, rows.length); r++) {
+          const rowData = rows[r - 1];
+          if (!rowData) continue;
+          const colA = (rowData[0] || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          const colB = (rowData[1] || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+          if (
+            (colA && (colA.includes(normEx) || normEx.includes(colA))) ||
+            (colB && (colB.includes(normEx) || normEx.includes(colB)))
+          ) {
+            if (!usedRows.has(r)) {
+              matchedExToRow.set(exIdx, r);
+              usedRows.add(r);
+              break;
+            }
+          }
+        }
+      });
+    }
+
+    // Phase 2: Sequential fallback mapping for remaining exercises
+    let curRow = startRow;
+    exercises.forEach((ex, exIdx) => {
+      if (matchedExToRow.has(exIdx)) return;
+      while (usedRows.has(curRow) && curRow <= endRow) {
+        curRow++;
+      }
+      if (curRow <= endRow) {
+        matchedExToRow.set(exIdx, curRow);
+        usedRows.add(curRow);
+        curRow++;
+      }
+    });
+
+    // 7. Construct batch updates for Column D (KG) and Column F/Feedback
     const batchUpdates: GoogleSheetBatchUpdate[] = [];
-    const updatedRows: number[] = [];
+    const updatedRowNumbers: number[] = [];
 
     exercises.forEach((ex: SyncExercise, exIdx: number) => {
-      const rowNumber = currentConfig.startRow + exIdx;
-      if (rowNumber > currentConfig.endRow) {
-        console.warn(`Exercise index ${exIdx} (${ex.exerciseName}) exceeds Day ${currentConfig.day} max row ${currentConfig.endRow}, skipping.`);
-        return;
-      }
+      const rowNumber = matchedExToRow.get(exIdx);
+      if (!rowNumber) return;
 
       const rawSets = ex.sets || [];
       const sets = rawSets.filter((s: SyncSet) => s.reps > 0 || s.weight > 0);
 
       if (sets.length > 0 || ex.feedback) {
-        updatedRows.push(rowNumber);
+        updatedRowNumbers.push(rowNumber);
 
         // Map sets to include adjusted reps (subtract 0.5 reps if Failure tag is present)
         const adjustedSets = sets.map((s: SyncSet) => ({
           ...s,
-          adjustedReps: s.type === "F" ? s.reps - 0.5 : s.reps
+          adjustedReps: s.type === "F" ? s.reps - 0.5 : s.reps,
         }));
-
-        // Format KG Column (Column D)
-        const allIdentical = adjustedSets.length > 0 && adjustedSets.every(
-          (s) => s.weight === adjustedSets[0].weight && 
-                 s.adjustedReps === adjustedSets[0].adjustedReps &&
-                 (s.rpe === undefined ? 0 : parseFloat(s.rpe.toString().replace(",", "."))) === 
-                 (adjustedSets[0].rpe === undefined ? 0 : parseFloat(adjustedSets[0].rpe.toString().replace(",", ".")))
-        );
 
         let kgValue = "";
         if (adjustedSets.length > 0) {
+          const allIdentical = adjustedSets.every(
+            (s) =>
+              s.weight === adjustedSets[0].weight &&
+              s.adjustedReps === adjustedSets[0].adjustedReps &&
+              (s.rpe === undefined
+                ? 0
+                : parseFloat(s.rpe.toString().replace(",", "."))) ===
+                (adjustedSets[0].rpe === undefined
+                  ? 0
+                  : parseFloat(adjustedSets[0].rpe.toString().replace(",", ".")))
+          );
+
           if (allIdentical) {
-            const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"].slice(0, adjustedSets.length).join(", ");
+            const ordinals = ["1°", "2°", "3°", "4°", "5°", "6°"]
+              .slice(0, adjustedSets.length)
+              .join(", ");
             const formattedWeight = adjustedSets[0].weight.toString().replace(".", ",");
             const formattedReps = adjustedSets[0].adjustedReps.toString().replace(".", ",");
-            const rpeVal = adjustedSets[0].rpe ? parseFloat(adjustedSets[0].rpe.toString().replace(",", ".")) : 0;
+            const rpeVal = adjustedSets[0].rpe
+              ? parseFloat(adjustedSets[0].rpe.toString().replace(",", "."))
+              : 0;
             const rpeSuffix = rpeVal > 0 ? ` @ ${rpeVal.toString().replace(".", ",")}` : "";
             kgValue = `${ordinals} set ${formattedWeight} x ${formattedReps}${rpeSuffix}`;
           } else {
@@ -366,30 +512,35 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Batch add values for Column D (KG)
+        // Add Column D (KG)
         batchUpdates.push({
           range: `${sheetName}!D${rowNumber}`,
           values: [[kgValue]],
         });
 
-        // Batch add values for Column F (Feedback Atleta)
+        // Add Feedback Column
         batchUpdates.push({
-          range: `${sheetName}!F${rowNumber}`,
+          range: `${sheetName}!${feedbackColLetter}${rowNumber}`,
           values: [[ex.feedback || ""]],
         });
 
-        console.log(`Writing Exercise ${exIdx + 1} (${ex.exerciseName}) -> Row ${rowNumber} (D${rowNumber}, F${rowNumber})`);
+        console.log(
+          `Syncing Exercise ${exIdx + 1} (${ex.exerciseName}) -> Row ${rowNumber} [D${rowNumber}, ${feedbackColLetter}${rowNumber}]`
+        );
       }
     });
 
     if (batchUpdates.length === 0) {
-      return NextResponse.json({
-        message: "Nessun esercizio della routine corrispondeva al foglio per questa giornata.",
-        syncedCount: 0,
-      });
+      return NextResponse.json(
+        {
+          error:
+            "Nessun dato o serie completata da sincronizzare. Completa almeno una serie o aggiungi un feedback.",
+        },
+        { status: 400 }
+      );
     }
 
-    // 7. Write all cellular updates in a single batch call to Google Sheets API
+    // 8. Write all updates in a single batch call to Google Sheets API
     const writeRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
@@ -408,31 +559,31 @@ export async function POST(req: NextRequest) {
     if (!writeRes.ok) {
       const errText = await writeRes.text();
       return NextResponse.json(
-        { error: `Errore durante la scrittura: ${errText}` },
+        { error: `Errore durante la scrittura su Fogli Google: ${errText}` },
         { status: writeRes.status }
       );
     }
 
-    // 8. Format feedback cells to font size 9 (Column F)
-    if (targetSheetId && updatedRows.length > 0) {
-      const formattingRequests = updatedRows.map((rowNumber) => ({
+    // 9. Format feedback cells to font size 9
+    if (targetSheetId && updatedRowNumbers.length > 0) {
+      const formattingRequests = updatedRowNumbers.map((rowNumber) => ({
         repeatCell: {
           range: {
             sheetId: targetSheetId,
             startRowIndex: rowNumber - 1,
             endRowIndex: rowNumber,
-            startColumnIndex: 5, // Column F (0-based)
-            endColumnIndex: 6    // Column F exclusive
+            startColumnIndex: feedbackColIdx,
+            endColumnIndex: feedbackColIdx + 1,
           },
           cell: {
             userEnteredFormat: {
               textFormat: {
-                fontSize: 9
-              }
-            }
+                fontSize: 9,
+              },
+            },
           },
-          fields: "userEnteredFormat.textFormat.fontSize"
-        }
+          fields: "userEnteredFormat.textFormat.fontSize",
+        },
       }));
 
       try {
@@ -450,9 +601,7 @@ export async function POST(req: NextRequest) {
           }
         );
         if (!formatRes.ok) {
-          console.error("Failed to apply font size 9 formatting:", await formatRes.text());
-        } else {
-          console.log("Successfully formatted feedback cells to font size 9");
+          console.error("Feedback cell format warning:", await formatRes.text());
         }
       } catch (err) {
         console.error("Error formatting feedback cells:", err);
@@ -461,12 +610,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Allenamento sincronizzato con successo su Google Sheets in '${sheetName}'!`,
-      syncedCount: batchUpdates.length / 2,
+      message: `Allenamento sincronizzato con successo in '${sheetName}' su '${matchedFile.name}'!`,
+      syncedCount: updatedRowNumbers.length,
+      sheetName,
+      fileName: matchedFile.name,
     });
   } catch (error: unknown) {
-    console.error("Sync error:", error);
-    const msg = error instanceof Error ? error.message : "Errore di server.";
+    console.error("Sheets sync error:", error);
+    const msg = error instanceof Error ? error.message : "Errore interno del server.";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
