@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
 
     const accessToken = typedSession.accessToken;
 
-    // 1. Search for spreadsheet named "Scheda Cata 20" in user's Drive (non-trashed, latest modified first)
-    let query = encodeURIComponent("name contains 'Scheda Cata 20' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false");
+    // 1. Search for spreadsheet named "Scheda Cata 21" in user's Drive (non-trashed, latest modified first)
+    let query = encodeURIComponent("name contains 'Scheda Cata 21' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false");
     let driveRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime)`,
       {
@@ -74,9 +74,9 @@ export async function POST(req: NextRequest) {
 
     let driveData = await driveRes.json() as GoogleDriveSearchResponse;
 
-    // Fallback: If "Scheda Cata 20" is not found, search for most recent "Scheda Cata" spreadsheet
+    // Fallback: If "Scheda Cata 21" is not found, search for most recent "Scheda Cata" spreadsheet
     if (!driveData.files || driveData.files.length === 0) {
-      console.log("Specific 'Scheda Cata 20' not found, searching for latest 'Scheda Cata' file...");
+      console.log("Specific 'Scheda Cata 21' not found, searching for latest 'Scheda Cata' file...");
       query = encodeURIComponent("name contains 'Scheda Cata' and mimeType='application/vnd.google-apps.spreadsheet' and trashed = false");
       driveRes = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime)`,
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     if (!driveData.files || driveData.files.length === 0) {
       return NextResponse.json(
-        { error: "File 'Scheda Cata 20' non trovato su Google Drive. Assicurati che il foglio si chiami 'Scheda Cata 20'." },
+        { error: "File 'Scheda Cata 21' non trovato su Google Drive. Assicurati che il foglio si chiami 'Scheda Cata 21'." },
         { status: 404 }
       );
     }
@@ -298,7 +298,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Exact row specifications for Scheda Cata 20 (identical across S1..S6):
+    // Exact row specifications for Scheda Cata 21 (identical across S1..S6):
     // Day 1: Squat, rows 8 to 13
     // Day 2: Bench, rows 19 to 24
     // Day 3: Deadlift, rows 30 to 35
