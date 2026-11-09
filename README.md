@@ -29,6 +29,7 @@ The app is organized into three main tabs, accessible via the bottom tab bar or 
 - Create and edit **workout templates** (routines).
 - Organize routines into **folders and subfolders** (e.g. `Program → W1, W2, … W6`).
 - **Duplicate and move** individual routines or entire subfolders/weeks into existing or new folders.
+- Group two or more exercises into **Supersets / Trisets** (`A1/A2`, `B1/B2`) with color-coded badges and automatic `0s` intra-superset transitions.
 - Configure per-exercise sets, **target reps**, **target RPE**, and **custom rest timers**.
 - Reorder exercises via drag & drop.
 - Quick-start an empty **Free Workout** without a template.
@@ -38,7 +39,7 @@ The app is organized into three main tabs, accessible via the bottom tab bar or 
 - Persistent workout elapsed timer across tabs.
 - Set table with **kg**, **reps** (or duration), **RPE**, completion checkmark ✓, and previous session values.
 - Set types: **Normal**, **W** (warm-up, excluded from volume), **D** (dropset), **F** (failure).
-- **Automatic rest timer** triggered on set completion, adjustable on the fly (+/−) with a progress bar.
+- **Superset flow & automatic rest timer**: instant auto-scroll to the next exercise in the superset (`A1 → A2`) or custom rest countdown at the end of the round, adjustable on the fly (+/−) with a progress bar.
 - Custom numeric keypad with steppers and swipe-to-delete sets.
 - Reorder or remove exercises, add from the catalog, or create new exercises on the fly.
 - Per-exercise **Notes / Feedback** field.

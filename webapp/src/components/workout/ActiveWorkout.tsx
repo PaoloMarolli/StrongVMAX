@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History, ChevronUp, ChevronDown, Timer, ArrowUpDown, MoreHorizontal, Download } from "lucide-react";
-import { storage, Exercise, calculateSetVolume } from "@/utils/storage";
+import { Check, Play, Pause, FastForward, Plus, Trash2, X, Pencil, History, ChevronUp, ChevronDown, Timer, ArrowUpDown, MoreHorizontal, Download, Link2, Unlink2 } from "lucide-react";
+import { storage, Exercise, calculateSetVolume, computeSupersetMap, toggleSupersetLinkBetween, removeExerciseFromSuperset } from "@/utils/storage";
 import { useSession, signIn } from "next-auth/react";
 
 function formatRestDuration(seconds?: number): string {
-  if (!seconds || seconds <= 0) return "90s";
+  if (seconds === 0) return "0s (Subito)";
+  if (seconds === undefined || seconds < 0) return "90s";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   if (m > 0 && s > 0) return `${m}m ${s}s`;
@@ -121,6 +122,12 @@ export default function ActiveWorkout() {
   
   // Resting Set Tracking State
   const [restingSetKey, setRestingSetKey] = useState<string | null>(null);
+  const [supersetNextCue, setSupersetNextCue] = useState<{
+    groupTitle: string;
+    nextLabel: string;
+    nextName: string;
+    targetExIdx: number;
+  } | null>(null);
 
   // Add Exercise Modal State
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
@@ -214,11 +221,14 @@ export default function ActiveWorkout() {
   // Ensure all active exercises have their custom or stored restSeconds
   useEffect(() => {
     setActiveExercises((prev) => {
-      const needsRest = prev.some((ex) => !ex.restSeconds);
+      const needsRest = prev.some((ex) => ex.restSeconds === undefined);
       if (!needsRest) return prev;
       return prev.map((ex) => ({
         ...ex,
-        restSeconds: ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds),
+        restSeconds:
+          ex.restSeconds !== undefined
+            ? ex.restSeconds
+            : storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds),
       }));
     });
   }, [defaultRestSeconds, setActiveExercises]);
@@ -718,18 +728,83 @@ export default function ActiveWorkout() {
         });
       }
 
-      // Start rest timer with background-resilient end timestamp
-      const exerciseRest = activeExercises[exIdx]?.restSeconds;
-      const duration = exerciseRest && exerciseRest > 0 ? exerciseRest : defaultRestSeconds;
-      setActiveRestTotalDuration(duration);
-      setRestTimeLeft(duration);
-      setIsRestPaused(false);
-      setRestEndTime(Date.now() + duration * 1000);
-      setRestingSetKey(key); // Set active resting set
+      // Determine Superset context & next exercise in superset round
+      const ssMap = computeSupersetMap(activeExercises);
+      const ssMeta = ssMap[exIdx];
+      let nextSupersetTarget: {
+        groupTitle: string;
+        nextLabel: string;
+        nextName: string;
+        targetExIdx: number;
+      } | null = null;
 
-      // Automatically launch native iPhone Timer with the exercise's exact rest seconds
-      triggerIOSNativeTimer(duration);
+      if (ssMeta) {
+        const nextCompletedSnapshot = { ...completedSets, [key]: true };
+        const groupMemberIndices = activeExercises
+          .map((e, i) => (e.supersetId === ssMeta.supersetId ? i : -1))
+          .filter((i) => i !== -1);
+
+        // 1. Look for the next member after exIdx in the same round (setIdx) not yet completed
+        let candidateIdx = groupMemberIndices.find(
+          (i) => i > exIdx && i < activeExercises.length && setIdx < activeExercises[i].sets.length && !nextCompletedSnapshot[`${i}_${setIdx}`]
+        );
+        // 2. Otherwise look for any earlier member in the same round (setIdx) not yet completed
+        if (candidateIdx === undefined) {
+          candidateIdx = groupMemberIndices.find(
+            (i) => i !== exIdx && setIdx < activeExercises[i].sets.length && !nextCompletedSnapshot[`${i}_${setIdx}`]
+          );
+        }
+        // 3. If all members finished setIdx, point back to the first member that has a next set (setIdx + 1)
+        if (candidateIdx === undefined) {
+          candidateIdx = groupMemberIndices.find(
+            (i) => setIdx + 1 < activeExercises[i].sets.length && !nextCompletedSnapshot[`${i}_${setIdx + 1}`]
+          );
+        }
+
+        if (candidateIdx !== undefined && ssMap[candidateIdx]) {
+          nextSupersetTarget = {
+            groupTitle: ssMeta.groupTitle,
+            nextLabel: ssMap[candidateIdx]!.label,
+            nextName: activeExercises[candidateIdx].exerciseName,
+            targetExIdx: candidateIdx,
+          };
+        }
+      }
+
+      setSupersetNextCue(nextSupersetTarget);
+
+      // Start rest timer with background-resilient end timestamp (or immediate superset transition if 0s)
+      const exerciseRest = activeExercises[exIdx]?.restSeconds;
+      const duration =
+        exerciseRest !== undefined && exerciseRest >= 0
+          ? exerciseRest
+          : defaultRestSeconds;
+
+      if (duration === 0) {
+        // Immediate transition (no rest timer) — scroll smoothly to next superset exercise if available
+        setRestTimeLeft(0);
+        setRestEndTime(null);
+        setRestingSetKey(null);
+        if (nextSupersetTarget && typeof window !== "undefined") {
+          setTimeout(() => {
+            const nextCard = document.getElementById(`exercise_card_${nextSupersetTarget!.targetExIdx}`);
+            if (nextCard) {
+              nextCard.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }, 150);
+        }
+      } else {
+        setActiveRestTotalDuration(duration);
+        setRestTimeLeft(duration);
+        setIsRestPaused(false);
+        setRestEndTime(Date.now() + duration * 1000);
+        setRestingSetKey(key); // Set active resting set
+
+        // Automatically launch native iPhone Timer with the exercise's exact rest seconds
+        triggerIOSNativeTimer(duration);
+      }
     } else {
+      setSupersetNextCue(null);
       if (restingSetKey === key) {
         setRestingSetKey(null);
         setRestTimeLeft(0);
@@ -882,7 +957,12 @@ export default function ActiveWorkout() {
 
   // Remove Exercise from Session
   const removeExercise = (exIdx: number) => {
-    setActiveExercises((prev) => prev.filter((_, idx) => idx !== exIdx));
+    setActiveExercises((prev) => {
+      const cleaned = removeExerciseFromSuperset(prev, exIdx, (item) =>
+        storage.getExerciseRestSeconds(item.exerciseId, defaultRestSeconds)
+      );
+      return cleaned.filter((_, idx) => idx !== exIdx);
+    });
   };
 
   // Reorder Exercises in Active Workout
@@ -1302,7 +1382,7 @@ export default function ActiveWorkout() {
                       Google Fogli
                     </span>
                     <span className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-medium">
-                      Apri Scheda Cata 20
+                      Apri scheda allenamento
                     </span>
                   </div>
                   <span className="w-8 h-8 rounded-full bg-[#0F9D58]/15 flex items-center justify-center shrink-0">
@@ -1362,64 +1442,135 @@ export default function ActiveWorkout() {
 
       {/* Exercises Scroll List */}
       <div className={`flex-1 overflow-y-auto p-4 space-y-4 transition-all duration-300 ${activeKeypad ? "pb-[320px]" : "pb-28"}`}>
-        {activeExercises.map((ex, exIdx) => {
-          const foundEx = exercisesCatalog.find(c => c.id === ex.exerciseId);
-          const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
+        {(() => {
+          const activeSupersetMap = computeSupersetMap(activeExercises);
+          return activeExercises.map((ex, exIdx) => {
+            const foundEx = exercisesCatalog.find(c => c.id === ex.exerciseId);
+            const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
+            const ssMeta = activeSupersetMap[exIdx];
+            const nextSsMeta = exIdx < activeExercises.length - 1 ? activeSupersetMap[exIdx + 1] : null;
+            const isLinkedWithNext = Boolean(ssMeta && nextSsMeta && ssMeta.supersetId === nextSsMeta.supersetId);
+            const effectiveRest =
+              ex.restSeconds !== undefined && ex.restSeconds >= 0
+                ? ex.restSeconds
+                : storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds);
 
-          return (
-            <div key={ex.exerciseId} className="rounded-[26px] bg-white/75 dark:bg-zinc-900/75 backdrop-blur-2xl border border-black/[0.04] dark:border-white/[0.08] shadow-[0_4px_24px_-4px_rgba(0,0,0,0.05)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.35)] overflow-hidden transition-all duration-300">
-              <div className="px-4 pt-4 pb-3 border-b border-black/[0.04] dark:border-white/[0.06] flex justify-between items-start gap-2 bg-black/[0.015] dark:bg-white/[0.02]">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
-                      className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
-                      title="Tocca per vedere lo storico delle settimane precedenti"
-                    >
-                      <h2 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-50 group-hover:text-primary transition-colors tracking-tight">
-                        {ex.exerciseName}
-                      </h2>
-                      <span className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1 transition-all">
-                        <History size={10} className="stroke-[2.5px]" /> Storico
-                      </span>
-                    </button>
+            return (
+              <React.Fragment key={`${ex.exerciseId}_${exIdx}`}>
+                <div
+                  id={`exercise_card_${exIdx}`}
+                  className={`rounded-[26px] bg-white/75 dark:bg-zinc-900/75 backdrop-blur-2xl border border-black/[0.04] dark:border-white/[0.08] shadow-[0_4px_24px_-4px_rgba(0,0,0,0.05)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.35)] overflow-hidden transition-all duration-300 ${
+                    ssMeta ? ssMeta.theme.accentBorder : ""
+                  }`}
+                >
+                  <div className="px-4 pt-4 pb-3 border-b border-black/[0.04] dark:border-white/[0.06] flex justify-between items-start gap-2 bg-black/[0.015] dark:bg-white/[0.02]">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        {ssMeta && (
+                          <span
+                            className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 ${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`}
+                          >
+                            <Link2 size={10} className="stroke-[2.5px]" />
+                            {ssMeta.label} • {ssMeta.groupTitle}
+                          </span>
+                        )}
 
-                    {/* Custom Exercise Rest Timer Chip */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedTimerExerciseIdx(exIdx);
-                        setTempTimerSeconds(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds));
-                        setIsCustomTimerModalOpen(true);
-                      }}
-                      className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/25 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
-                      title="Personalizza tempo di recupero per questo esercizio"
-                    >
-                      <Timer size={10} className="stroke-[2.5px]" />
-                      <span>{formatRestDuration(ex.restSeconds || storage.getExerciseRestSeconds(ex.exerciseId, defaultRestSeconds))}</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedHistoryExercise({ id: ex.exerciseId, name: ex.exerciseName })}
+                          className="flex items-center gap-1.5 active:scale-95 transition-transform group text-left cursor-pointer"
+                          title="Tocca per vedere lo storico delle settimane precedenti"
+                        >
+                          <h2 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-50 group-hover:text-primary transition-colors tracking-tight">
+                            {ex.exerciseName}
+                          </h2>
+                          <span className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1 transition-all">
+                            <History size={10} className="stroke-[2.5px]" /> Storico
+                          </span>
+                        </button>
 
-                    {/* Target Reps Badge */}
-                    {ex.targetReps && (
-                      <span 
-                        className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/25 flex items-center gap-1"
-                        title="Obiettivo ripetizioni per la routine"
-                      >
-                        🎯 {ex.targetReps} reps
-                      </span>
-                    )}
+                        {/* Custom Exercise Rest Timer Chip */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTimerExerciseIdx(exIdx);
+                            setTempTimerSeconds(effectiveRest);
+                            setIsCustomTimerModalOpen(true);
+                          }}
+                          className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/25 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                          title="Personalizza tempo di recupero per questo esercizio"
+                        >
+                          <Timer size={10} className="stroke-[2.5px]" />
+                          <span>{formatRestDuration(effectiveRest)}</span>
+                        </button>
 
-                    {/* Target RPE Badge */}
-                    {ex.targetRpe && (
-                      <span 
-                        className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/25 flex items-center gap-1"
-                        title="Obiettivo RPE per la routine"
-                      >
-                        @{ex.targetRpe} RPE
-                      </span>
-                    )}
-                  </div>
+                        {/* Superset Quick Toggle Chip in Active Workout */}
+                        {activeExercises.length >= 2 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (ssMeta) {
+                                setActiveExercises((prev) =>
+                                  removeExerciseFromSuperset(prev, exIdx, (item) =>
+                                    storage.getExerciseRestSeconds(item.exerciseId, defaultRestSeconds)
+                                  )
+                                );
+                              } else {
+                                const linkTargetIdx = exIdx < activeExercises.length - 1 ? exIdx : exIdx - 1;
+                                setActiveExercises((prev) =>
+                                  toggleSupersetLinkBetween(prev, linkTargetIdx, (item) =>
+                                    storage.getExerciseRestSeconds(item.exerciseId, defaultRestSeconds)
+                                  )
+                                );
+                              }
+                            }}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 active:scale-95 transition-all cursor-pointer ${
+                              ssMeta
+                                ? `${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`
+                                : "bg-black/[0.04] dark:bg-white/[0.06] text-zinc-500 hover:text-violet-500 border-black/[0.06] dark:border-white/[0.08]"
+                            }`}
+                            title={
+                              ssMeta
+                                ? `Scollega da ${ssMeta.groupTitle}`
+                                : exIdx < activeExercises.length - 1
+                                  ? "Unisci in Superset con l'esercizio successivo"
+                                  : "Unisci in Superset con l'esercizio precedente"
+                            }
+                          >
+                            {ssMeta ? (
+                              <>
+                                <Unlink2 size={10} className="stroke-[2.5px]" />
+                                <span>Scollega</span>
+                              </>
+                            ) : (
+                              <>
+                                <Link2 size={10} className="stroke-[2.5px]" />
+                                <span>Superset</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
+                        {/* Target Reps Badge */}
+                        {ex.targetReps && (
+                          <span 
+                            className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/25 flex items-center gap-1"
+                            title="Obiettivo ripetizioni per la routine"
+                          >
+                            🎯 {ex.targetReps} reps
+                          </span>
+                        )}
+
+                        {/* Target RPE Badge */}
+                        {ex.targetRpe && (
+                          <span 
+                            className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/25 flex items-center gap-1"
+                            title="Obiettivo RPE per la routine"
+                          >
+                            @{ex.targetRpe} RPE
+                          </span>
+                        )}
+                      </div>
 
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                     {isDuration ? (
@@ -1792,8 +1943,48 @@ export default function ActiveWorkout() {
                 />
               </div>
             </div>
+
+            {/* Interactive Superset Connector Between Consecutive Exercise Cards */}
+            {exIdx < activeExercises.length - 1 && (
+              <div className="flex items-center justify-center -my-2 z-10 relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveExercises((prev) =>
+                      toggleSupersetLinkBetween(prev, exIdx, (item) =>
+                        storage.getExerciseRestSeconds(item.exerciseId, defaultRestSeconds)
+                      )
+                    )
+                  }
+                  className={`px-3.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1.5 border transition-all active:scale-95 cursor-pointer ${
+                    isLinkedWithNext && ssMeta && nextSsMeta
+                      ? `${ssMeta.theme.connectorBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.connectorBorder} shadow-sm`
+                      : "bg-black/[0.03] dark:bg-white/[0.04] hover:bg-violet-500/10 text-zinc-400 hover:text-violet-500 border-dashed border-black/10 dark:border-white/10"
+                  }`}
+                  title={
+                    isLinkedWithNext
+                      ? "Tocca per scollegare il Superset"
+                      : "Tocca per collegare in Superset con l'esercizio successivo"
+                  }
+                >
+                  {isLinkedWithNext && ssMeta && nextSsMeta ? (
+                    <>
+                      <Link2 size={11} className="stroke-[2.5px]" />
+                      <span>{ssMeta.groupTitle} ({ssMeta.label} + {nextSsMeta.label}) • Scollega</span>
+                    </>
+                  ) : (
+                    <>
+                      <Link2 size={11} />
+                      <span>+ Collega in Superset</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            </React.Fragment>
           );
-        })}
+          });
+        })()}
 
         {/* Global Add Exercise and Reorder Buttons at bottom */}
         <div className="flex gap-2.5 pt-2">
@@ -1815,10 +2006,45 @@ export default function ActiveWorkout() {
         </div>
       </div>
 
+      {/* Immediate Superset Next Exercise Floating Cue (when restSeconds === 0) */}
+      {restTimeLeft === 0 && supersetNextCue && (
+        <div className="fixed bottom-4 left-3 right-3 max-w-lg mx-auto z-[105] rounded-[24px] bg-violet-600/95 backdrop-blur-2xl text-white shadow-[0_12px_35px_rgba(139,92,246,0.35)] border border-white/20 px-4 py-3 flex items-center justify-between gap-2 animate-in slide-in-from-bottom-3 duration-300">
+          <div
+            onClick={() => {
+              const nextCard = document.getElementById(`exercise_card_${supersetNextCue.targetExIdx}`);
+              if (nextCard) {
+                nextCard.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+            className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+          >
+            <span className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <Link2 size={15} className="stroke-[2.5px]" />
+            </span>
+            <div className="min-w-0">
+              <span className="text-[9.5px] font-black uppercase tracking-wider text-violet-200 block">
+                {supersetNextCue.groupTitle} • Senza recupero
+              </span>
+              <span className="text-xs font-extrabold truncate block">
+                Prossimo: [{supersetNextCue.nextLabel}] {supersetNextCue.nextName}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSupersetNextCue(null)}
+            className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 active:scale-90 transition-all shrink-0 cursor-pointer"
+            aria-label="Chiudi avviso superset"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Floating Rest Timer Live Activity Island */}
       {restTimeLeft > 0 && (
         <div className="fixed bottom-4 left-3 right-3 max-w-lg mx-auto z-[105] rounded-[28px] bg-zinc-900/95 dark:bg-zinc-950/95 backdrop-blur-2xl text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] border border-white/15 px-3.5 py-3 flex items-center justify-between animate-in slide-in-from-bottom-3 duration-300">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button 
               onClick={() => {
                 if (isRestPaused) {
@@ -1834,9 +2060,11 @@ export default function ActiveWorkout() {
               {isRestPaused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}
             </button>
 
-            <div className="flex flex-col">
-              <span className="text-[9.5px] font-bold uppercase tracking-wider text-zinc-400">
-                Riposo
+            <div className="flex flex-col min-w-0">
+              <span className="text-[9.5px] font-bold uppercase tracking-wider text-zinc-400 truncate">
+                {supersetNextCue
+                  ? `Riposo • Poi [${supersetNextCue.nextLabel}] ${supersetNextCue.nextName}`
+                  : "Riposo"}
               </span>
               <span className="font-mono font-black text-2xl leading-tight text-white tracking-tight">
                 {Math.floor(restTimeLeft / 60).toString().padStart(2, "0")}:
@@ -2211,7 +2439,7 @@ export default function ActiveWorkout() {
                 </div>
                 <h3 className="text-base font-bold text-primary mt-2">Sincronizzazione</h3>
                 <p className="text-xs text-gray-500 max-w-[240px]">
-                  Stiamo aggiornando la tua **&ldquo;Scheda Cata 20&rdquo;** su Google Drive con i tuoi KG e feedback della settimana...
+                  Stiamo aggiornando la tua scheda su Google Drive con i tuoi KG e feedback della settimana...
                 </p>
               </>
             )}
@@ -2538,7 +2766,7 @@ export default function ActiveWorkout() {
             {/* Stepper Display */}
             <div className="flex items-center justify-center gap-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5">
               <button
-                onClick={() => setTempTimerSeconds((prev) => Math.max(15, prev - 15))}
+                onClick={() => setTempTimerSeconds((prev) => Math.max(0, prev - 15))}
                 className="w-11 h-11 rounded-full bg-white dark:bg-zinc-800 shadow-md flex items-center justify-center text-sm font-black active:scale-90 transition-transform text-foreground cursor-pointer"
               >
                 -15s
@@ -2548,7 +2776,7 @@ export default function ActiveWorkout() {
                   {Math.floor(tempTimerSeconds / 60)}:{(tempTimerSeconds % 60).toString().padStart(2, "0")}
                 </div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
-                  {tempTimerSeconds} secondi
+                  {tempTimerSeconds === 0 ? "Nessun recupero (Superset)" : `${tempTimerSeconds} secondi`}
                 </div>
               </div>
               <button
@@ -2563,7 +2791,7 @@ export default function ActiveWorkout() {
             <div>
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Preset Rapidi</span>
               <div className="grid grid-cols-4 gap-2">
-                {[30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((sec) => (
+                {[0, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((sec) => (
                   <button
                     key={sec}
                     type="button"
@@ -2574,7 +2802,7 @@ export default function ActiveWorkout() {
                         : "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-foreground border border-black/5 dark:border-white/5"
                     }`}
                   >
-                    {sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`}
+                    {sec === 0 ? "0s (Subito)" : sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`}
                   </button>
                 ))}
               </div>

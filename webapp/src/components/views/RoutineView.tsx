@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2, Timer, Target, Search, Copy, ArrowRightLeft } from "lucide-react";
+import { Plus, Play, Dumbbell, X, Check, Trash2, GripVertical, Folder, FolderPlus, ChevronDown, ChevronRight, Edit2, Timer, Target, Search, Copy, ArrowRightLeft, Link2, Unlink2 } from "lucide-react";
 import { useWorkout } from "@/context/WorkoutContext";
-import { storage, WorkoutTemplate, WorkoutFolder, Exercise, WorkoutExercise, WorkoutSet, TemplateExerciseConfig, normalizeTemplateExercise } from "@/utils/storage";
+import { storage, WorkoutTemplate, WorkoutFolder, Exercise, WorkoutExercise, WorkoutSet, TemplateExerciseConfig, normalizeTemplateExercise, computeSupersetMap, toggleSupersetLinkBetween, removeExerciseFromSuperset } from "@/utils/storage";
 import ThemeQuickToggle from "@/components/ThemeQuickToggle";
 import ModalPortal from "@/components/ModalPortal";
 
@@ -97,7 +97,7 @@ export default function RoutineView() {
         reps: 0,
         setOrder: i + 1,
       }));
-      const restSeconds = config.restSeconds !== undefined && config.restSeconds > 0
+      const restSeconds = config.restSeconds !== undefined && config.restSeconds >= 0
         ? config.restSeconds
         : storage.getExerciseRestSeconds(config.exerciseId, 90);
 
@@ -108,6 +108,7 @@ export default function RoutineView() {
         restSeconds,
         targetReps: config.targetReps,
         targetRpe: config.targetRpe,
+        supersetId: config.supersetId,
       };
     });
 
@@ -160,15 +161,25 @@ export default function RoutineView() {
 
   // Remove Selected Exercise
   const removeExerciseFromSelected = (id: string) => {
-    setSelectedExercises((prev) => prev.filter((ex) => ex.exerciseId !== id));
+    setSelectedExercises((prev) => {
+      const idx = prev.findIndex((ex) => ex.exerciseId === id);
+      if (idx === -1) return prev;
+      const cleaned = removeExerciseFromSuperset(prev, idx, (item) =>
+        storage.getExerciseRestSeconds(item.exerciseId, 90)
+      );
+      return cleaned.filter((ex) => ex.exerciseId !== id);
+    });
   };
 
   // Toggle selection from catalog
   const toggleSelectExercise = (id: string) => {
     setSelectedExercises((prev) => {
-      const exists = prev.some((ex) => ex.exerciseId === id);
-      if (exists) {
-        return prev.filter((ex) => ex.exerciseId !== id);
+      const idx = prev.findIndex((ex) => ex.exerciseId === id);
+      if (idx !== -1) {
+        const cleaned = removeExerciseFromSuperset(prev, idx, (item) =>
+          storage.getExerciseRestSeconds(item.exerciseId, 90)
+        );
+        return cleaned.filter((ex) => ex.exerciseId !== id);
       } else {
         const defaultRest = storage.getExerciseRestSeconds(id, 90);
         return [
@@ -535,11 +546,14 @@ export default function RoutineView() {
 
   // Helper to get exercises names for a template
   const getTemplateExercisesSummary = (template: WorkoutTemplate) => {
-    return template.exercises
-      .map((entry) => {
-        const id = typeof entry === "string" ? entry : entry.exerciseId;
-        const found = allExercises.find((e) => e.id === id);
-        return found ? found.name : null;
+    const normalized = template.exercises.map(normalizeTemplateExercise);
+    const ssMap = computeSupersetMap(normalized);
+    return normalized
+      .map((config, idx) => {
+        const found = allExercises.find((e) => e.id === config.exerciseId);
+        if (!found) return null;
+        const meta = ssMap[idx];
+        return meta ? `[${meta.label}] ${found.name}` : found.name;
       })
       .filter(Boolean)
       .join(", ");
@@ -961,45 +975,83 @@ export default function RoutineView() {
                 </div>
               ) : (
                 <div className="overflow-y-auto space-y-2 pr-1 flex-1 pb-4">
-                  {detailTemplate.exercises.map((entry, index) => {
-                    const config = normalizeTemplateExercise(entry);
-                    const found = allExercises.find((e) => e.id === config.exerciseId);
-                    if (!found) return null;
-                    const rest = config.restSeconds || storage.getExerciseRestSeconds(config.exerciseId, 90);
-                    return (
-                      <div 
-                        key={index} 
-                        className="p-3.5 bg-white dark:bg-zinc-900 rounded-2xl border border-black/5 dark:border-white/5 flex items-center justify-between shadow-sm"
-                      >
-                        <div className="flex-1 min-w-0 pr-2">
-                          <div className="font-semibold text-[15px] truncate">{found.name}</div>
-                          <span className="text-[9px] text-gray-400 uppercase tracking-wider block mb-1.5">{found.muscleGroup} • {found.equipment}</span>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
-                              {config.setsCount || 3} Serie
+                  {(() => {
+                    const normalizedDetail = detailTemplate.exercises.map(normalizeTemplateExercise);
+                    const detailSupersetMap = computeSupersetMap(normalizedDetail);
+                    return normalizedDetail.map((config, index) => {
+                      const found = allExercises.find((e) => e.id === config.exerciseId);
+                      if (!found) return null;
+                      const rest = config.restSeconds !== undefined && config.restSeconds >= 0
+                        ? config.restSeconds
+                        : storage.getExerciseRestSeconds(config.exerciseId, 90);
+                      const ssMeta = detailSupersetMap[index];
+                      const nextSsMeta = index < normalizedDetail.length - 1 ? detailSupersetMap[index + 1] : null;
+                      const isConnectedToNext = Boolean(ssMeta && nextSsMeta && ssMeta.supersetId === nextSsMeta.supersetId);
+
+                      return (
+                        <React.Fragment key={index}>
+                          <div 
+                            className={`p-3.5 bg-white dark:bg-zinc-900 rounded-2xl border border-black/5 dark:border-white/5 flex items-center justify-between shadow-sm ${
+                              ssMeta ? ssMeta.theme.accentBorder : ""
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 pr-2">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                {ssMeta && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border shrink-0 ${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`}
+                                  >
+                                    <Link2 size={10} className="stroke-[2.5px]" />
+                                    {ssMeta.label} • {ssMeta.groupTitle}
+                                  </span>
+                                )}
+                                <div className="font-semibold text-[15px] truncate">{found.name}</div>
+                              </div>
+                              <span className="text-[9px] text-gray-400 uppercase tracking-wider block mb-1.5">{found.muscleGroup} • {found.equipment}</span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                                  {config.setsCount || 3} Serie
+                                </span>
+                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                  <Timer size={10} className="stroke-[2.5px]" />
+                                  {rest === 0
+                                    ? "0s (Subito)"
+                                    : `${Math.floor(rest / 60)}m ${rest % 60 ? `${rest % 60}s` : "00s"}`}
+                                </span>
+                                {config.targetReps && (
+                                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                    <Target size={10} className="stroke-[2.5px]" /> {config.targetReps} reps
+                                  </span>
+                                )}
+                                {config.targetRpe && (
+                                  <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                                    @{config.targetRpe} RPE
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span
+                              className={`text-xs px-2.5 py-1 rounded-lg font-mono font-bold shrink-0 ${
+                                ssMeta
+                                  ? `${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText}`
+                                  : "bg-black/5 dark:bg-white/5 text-gray-400"
+                              }`}
+                            >
+                              {ssMeta ? ssMeta.label : index + 1}
                             </span>
-                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
-                              <Timer size={10} className="stroke-[2.5px]" />
-                              {Math.floor(rest / 60)}m {rest % 60 ? `${rest % 60}s` : "00s"}
-                            </span>
-                            {config.targetReps && (
-                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                <Target size={10} className="stroke-[2.5px]" /> {config.targetReps} reps
-                              </span>
-                            )}
-                            {config.targetRpe && (
-                              <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
-                                @{config.targetRpe} RPE
-                              </span>
-                            )}
                           </div>
-                        </div>
-                        <span className="text-xs bg-black/5 dark:bg-white/5 px-2.5 py-1 rounded-lg font-mono font-bold text-gray-400 shrink-0">
-                          {index + 1}
-                        </span>
-                      </div>
-                    );
-                  })}
+                          {isConnectedToNext && ssMeta && (
+                            <div className="flex items-center gap-2 pl-4 -my-1">
+                              <div className={`w-0.5 h-3.5 rounded-full ${ssMeta.theme.solidBg}`} />
+                              <span className={`text-[9.5px] font-extrabold uppercase tracking-wider flex items-center gap-1 ${ssMeta.theme.badgeText}`}>
+                                <Link2 size={10} /> Collegato in {ssMeta.groupTitle}
+                              </span>
+                            </div>
+                          )}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>
@@ -1100,157 +1152,267 @@ export default function RoutineView() {
                     </div>
                   ) : (
                     <div className="space-y-2.5 select-none relative">
-                      {selectedExercises.map((config, idx) => {
-                        const ex = allExercises.find((e) => e.id === config.exerciseId);
-                        if (!ex) return null;
-                        
-                        const isDraggingAny = draggedIndex !== null;
-                        const isCurrentDragged = draggedIndex === idx;
+                      {(() => {
+                        const editorSupersetMap = computeSupersetMap(selectedExercises);
+                        return selectedExercises.map((config, idx) => {
+                          const ex = allExercises.find((e) => e.id === config.exerciseId);
+                          if (!ex) return null;
+                          
+                          const isDraggingAny = draggedIndex !== null;
+                          const isCurrentDragged = draggedIndex === idx;
 
-                        let translateY = 0;
-                        let transitionStyle = "";
+                          let translateY = 0;
+                          let transitionStyle = "";
 
-                        if (isDraggingAny) {
-                          if (isCurrentDragged) {
-                            translateY = currentTouchY - touchStartY.current;
-                            transitionStyle = "none";
-                          } else {
-                            const draggedHeight = itemsRects.current[draggedIndex]?.height || 80;
-                            if (hoveredIndex !== null) {
-                              if (draggedIndex < hoveredIndex && idx > draggedIndex && idx <= hoveredIndex) {
-                                translateY = -draggedHeight;
-                              } else if (draggedIndex > hoveredIndex && idx < draggedIndex && idx >= hoveredIndex) {
-                                translateY = draggedHeight;
+                          if (isDraggingAny) {
+                            if (isCurrentDragged) {
+                              translateY = currentTouchY - touchStartY.current;
+                              transitionStyle = "none";
+                            } else {
+                              const draggedHeight = itemsRects.current[draggedIndex]?.height || 80;
+                              if (hoveredIndex !== null) {
+                                if (draggedIndex < hoveredIndex && idx > draggedIndex && idx <= hoveredIndex) {
+                                  translateY = -draggedHeight;
+                                } else if (draggedIndex > hoveredIndex && idx < draggedIndex && idx >= hoveredIndex) {
+                                  translateY = draggedHeight;
+                                }
                               }
+                              transitionStyle = "transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)";
                             }
-                            transitionStyle = "transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)";
+                          } else {
+                            transitionStyle = "transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease";
                           }
-                        } else {
-                          transitionStyle = "transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease";
-                        }
 
-                        const restSec = config.restSeconds || storage.getExerciseRestSeconds(config.exerciseId, 90);
+                          const restSec = config.restSeconds !== undefined && config.restSeconds >= 0
+                            ? config.restSeconds
+                            : storage.getExerciseRestSeconds(config.exerciseId, 90);
+                          const ssMeta = editorSupersetMap[idx];
+                          const nextSsMeta = idx < selectedExercises.length - 1 ? editorSupersetMap[idx + 1] : null;
+                          const isLinkedWithNext = Boolean(ssMeta && nextSsMeta && ssMeta.supersetId === nextSsMeta.supersetId);
 
-                        return (
-                          <div
-                            key={`${config.exerciseId}_${idx}`}
-                            className={`drag-item select-none flex flex-col gap-2.5 rounded-2xl border shadow-sm ${
-                              isDraggingAny
-                                ? isCurrentDragged
-                                  ? "p-4 bg-primary/10 border-primary/40 text-primary scale-105 shadow-xl z-30 ring-2 ring-primary/20 cursor-grabbing touch-none"
-                                  : "p-3 scale-[0.96] border-black/5 dark:border-white/5 bg-white dark:bg-zinc-900 text-gray-400 opacity-100"
-                                : "p-3.5 bg-white dark:bg-zinc-900 border-black/5 dark:border-white/5 text-foreground hover:border-black/10 dark:hover:border-white/10 cursor-default"
-                            }`}
-                            style={{
-                              transform: `translateY(${translateY}px)`,
-                              transition: transitionStyle,
-                              WebkitUserSelect: "none",
-                              WebkitTouchCallout: "none",
-                              zIndex: isCurrentDragged ? 50 : 1,
-                              position: "relative"
-                            }}
-                          >
-                            {/* Exercise Name & Reorder Row */}
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                <div
-                                  onTouchStart={(e) => handleTouchStart(e, idx)}
-                                  onTouchMove={handleTouchMove}
-                                  onTouchEnd={handleTouchEnd}
-                                  onTouchCancel={handleTouchEnd}
-                                  className="text-gray-400 p-1.5 bg-black/5 hover:bg-black/10 dark:bg-white/5 rounded-lg cursor-grab active:scale-110 active:text-primary transition-all shrink-0 touch-none"
-                                  style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
-                                >
-                                  <GripVertical size={16} />
-                                </div>
-                                <div className="flex-1 min-w-0 pointer-events-none">
-                                  <div className="text-[14px] font-bold truncate text-zinc-900 dark:text-zinc-50">{ex.name}</div>
-                                  <span className="text-[9px] text-gray-400 uppercase tracking-wider">{ex.muscleGroup} • {ex.equipment}</span>
-                                </div>
-                              </div>
-                              
-                              <button
-                                type="button"
-                                onTouchStart={(e) => e.stopPropagation()}
-                                onClick={() => removeExerciseFromSelected(config.exerciseId)}
-                                className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-500 active:scale-90 transition-all shrink-0 cursor-pointer"
-                                title="Rimuovi dalla Routine"
-                              >
-                                <X size={15} />
-                              </button>
-                            </div>
-
-                            {/* Custom Controls Row (Sets count, Rest Timer, Target Reps & Target RPE) */}
-                            <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-wrap items-center gap-2">
-                              {/* Serie Stepper */}
-                              <div className="flex items-center bg-black/5 dark:bg-white/5 rounded-xl p-0.5 border border-black/5 dark:border-white/10 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => updateExerciseConfig(idx, { setsCount: Math.max(1, (config.setsCount || 3) - 1) })}
-                                  className="w-7 h-7 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 active:scale-90 flex items-center justify-center font-bold text-sm shadow-sm transition-all cursor-pointer"
-                                  title="Diminuisci serie"
-                                >
-                                  -
-                                </button>
-                                <span className="px-2 text-xs font-bold text-zinc-900 dark:text-white whitespace-nowrap">
-                                  {config.setsCount || 3} Serie
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateExerciseConfig(idx, { setsCount: Math.min(20, (config.setsCount || 3) + 1) })}
-                                  className="w-7 h-7 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 active:scale-90 flex items-center justify-center font-bold text-sm shadow-sm transition-all cursor-pointer"
-                                  title="Aumenta serie"
-                                >
-                                  +
-                                </button>
-                              </div>
-
-                              {/* Rest Timer Button */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingRestTimerIndex(idx);
-                                  setTempRestSeconds(restSec);
-                                }}
-                                className="h-8 px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25 flex items-center gap-1 text-xs font-bold active:scale-95 transition-all shrink-0 cursor-pointer"
-                                title="Modifica tempo di riposo per questo esercizio"
-                              >
-                                <Timer size={12} className="stroke-[2.5px]" />
-                                <span>
-                                  {Math.floor(restSec / 60)}m {restSec % 60 ? `${restSec % 60}s` : "00s"}
-                                </span>
-                              </button>
-
-                              {/* Target Reps Input */}
-                              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-xl px-2.5 py-1.5 border border-black/5 dark:border-white/10 flex-1 min-w-[95px]">
-                                <Target size={12} className="text-emerald-500 shrink-0 stroke-[2.5px]" />
-                                <input
-                                  type="text"
-                                  value={config.targetReps || ""}
-                                  onChange={(e) => updateExerciseConfig(idx, { targetReps: e.target.value })}
-                                  placeholder="Reps (es. 8-10)"
-                                  className="w-full bg-transparent text-xs font-bold text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
-                                  title="Obiettivo ripetizioni o range (es. 8-10, 12, 6-8)"
-                                />
-                              </div>
-
-                              {/* Target RPE Button */}
-                              <button
-                                type="button"
-                                onClick={() => setEditingRpeIndex(idx)}
-                                className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-center shrink-0 active:scale-95 cursor-pointer ${
-                                  config.targetRpe
-                                    ? "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30"
-                                    : "bg-black/5 dark:bg-white/5 text-zinc-400 border-black/5 dark:border-white/10 hover:text-purple-500"
+                          return (
+                            <React.Fragment key={`${config.exerciseId}_${idx}`}>
+                              <div
+                                className={`drag-item select-none flex flex-col gap-2.5 rounded-2xl border shadow-sm ${
+                                  ssMeta ? ssMeta.theme.accentBorder : ""
+                                } ${
+                                  isDraggingAny
+                                    ? isCurrentDragged
+                                      ? "p-4 bg-primary/10 border-primary/40 text-primary scale-105 shadow-xl z-30 ring-2 ring-primary/20 cursor-grabbing touch-none"
+                                      : "p-3 scale-[0.96] border-black/5 dark:border-white/5 bg-white dark:bg-zinc-900 text-gray-400 opacity-100"
+                                    : "p-3.5 bg-white dark:bg-zinc-900 border-black/5 dark:border-white/5 text-foreground hover:border-black/10 dark:hover:border-white/10 cursor-default"
                                 }`}
-                                title="Target RPE programmato (es. @8)"
+                                style={{
+                                  transform: `translateY(${translateY}px)`,
+                                  transition: transitionStyle,
+                                  WebkitUserSelect: "none",
+                                  WebkitTouchCallout: "none",
+                                  zIndex: isCurrentDragged ? 50 : 1,
+                                  position: "relative"
+                                }}
                               >
-                                {config.targetRpe ? `@${config.targetRpe} RPE` : "@RPE"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                {/* Exercise Name & Reorder Row */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                    <div
+                                      onTouchStart={(e) => handleTouchStart(e, idx)}
+                                      onTouchMove={handleTouchMove}
+                                      onTouchEnd={handleTouchEnd}
+                                      onTouchCancel={handleTouchEnd}
+                                      className="text-gray-400 p-1.5 bg-black/5 hover:bg-black/10 dark:bg-white/5 rounded-lg cursor-grab active:scale-110 active:text-primary transition-all shrink-0 touch-none"
+                                      style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
+                                    >
+                                      <GripVertical size={16} />
+                                    </div>
+                                    <div className="flex-1 min-w-0 pointer-events-none">
+                                      <div className="flex items-center gap-1.5">
+                                        {ssMeta && (
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border shrink-0 ${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`}
+                                          >
+                                            <Link2 size={10} className="stroke-[2.5px]" />
+                                            {ssMeta.label}
+                                          </span>
+                                        )}
+                                        <div className="text-[14px] font-bold truncate text-zinc-900 dark:text-zinc-50">{ex.name}</div>
+                                      </div>
+                                      <span className="text-[9px] text-gray-400 uppercase tracking-wider">
+                                        {ssMeta ? `${ssMeta.groupTitle} • ` : ""}{ex.muscleGroup} • {ex.equipment}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  <button
+                                    type="button"
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    onClick={() => removeExerciseFromSelected(config.exerciseId)}
+                                    className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-500 active:scale-90 transition-all shrink-0 cursor-pointer"
+                                    title="Rimuovi dalla Routine"
+                                  >
+                                    <X size={15} />
+                                  </button>
+                                </div>
+
+                                {/* Custom Controls Row (Sets count, Rest Timer, Target Reps, Target RPE & Superset) */}
+                                <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-wrap items-center gap-2">
+                                  {/* Serie Stepper */}
+                                  <div className="flex items-center bg-black/5 dark:bg-white/5 rounded-xl p-0.5 border border-black/5 dark:border-white/10 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateExerciseConfig(idx, { setsCount: Math.max(1, (config.setsCount || 3) - 1) })}
+                                      className="w-7 h-7 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 active:scale-90 flex items-center justify-center font-bold text-sm shadow-sm transition-all cursor-pointer"
+                                      title="Diminuisci serie"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="px-2 text-xs font-bold text-zinc-900 dark:text-white whitespace-nowrap">
+                                      {config.setsCount || 3} Serie
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateExerciseConfig(idx, { setsCount: Math.min(20, (config.setsCount || 3) + 1) })}
+                                      className="w-7 h-7 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 active:scale-90 flex items-center justify-center font-bold text-sm shadow-sm transition-all cursor-pointer"
+                                      title="Aumenta serie"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+
+                                  {/* Rest Timer Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingRestTimerIndex(idx);
+                                      setTempRestSeconds(restSec);
+                                    }}
+                                    className="h-8 px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25 flex items-center gap-1 text-xs font-bold active:scale-95 transition-all shrink-0 cursor-pointer"
+                                    title="Modifica tempo di riposo per questo esercizio"
+                                  >
+                                    <Timer size={12} className="stroke-[2.5px]" />
+                                    <span>
+                                      {restSec === 0
+                                        ? "0s (Subito)"
+                                        : `${Math.floor(restSec / 60)}m ${restSec % 60 ? `${restSec % 60}s` : "00s"}`}
+                                    </span>
+                                  </button>
+
+                                  {/* Target Reps Input */}
+                                  <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-xl px-2.5 py-1.5 border border-black/5 dark:border-white/10 flex-1 min-w-[95px]">
+                                    <Target size={12} className="text-emerald-500 shrink-0 stroke-[2.5px]" />
+                                    <input
+                                      type="text"
+                                      value={config.targetReps || ""}
+                                      onChange={(e) => updateExerciseConfig(idx, { targetReps: e.target.value })}
+                                      placeholder="Reps (es. 8-10)"
+                                      className="w-full bg-transparent text-xs font-bold text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
+                                      title="Obiettivo ripetizioni o range (es. 8-10, 12, 6-8)"
+                                    />
+                                  </div>
+
+                                  {/* Target RPE Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingRpeIndex(idx)}
+                                    className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-center shrink-0 active:scale-95 cursor-pointer ${
+                                      config.targetRpe
+                                        ? "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                                        : "bg-black/5 dark:bg-white/5 text-zinc-400 border-black/5 dark:border-white/10 hover:text-purple-500"
+                                    }`}
+                                    title="Target RPE programmato (es. @8)"
+                                  >
+                                    {config.targetRpe ? `@${config.targetRpe} RPE` : "@RPE"}
+                                  </button>
+
+                                  {/* Superset Quick Toggle Button */}
+                                  {selectedExercises.length >= 2 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (ssMeta) {
+                                          setSelectedExercises((prev) =>
+                                            removeExerciseFromSuperset(prev, idx, (item) =>
+                                              storage.getExerciseRestSeconds(item.exerciseId, 90)
+                                            )
+                                          );
+                                        } else {
+                                          const linkTargetIdx = idx < selectedExercises.length - 1 ? idx : idx - 1;
+                                          setSelectedExercises((prev) =>
+                                            toggleSupersetLinkBetween(prev, linkTargetIdx, (item) =>
+                                              storage.getExerciseRestSeconds(item.exerciseId, 90)
+                                            )
+                                          );
+                                        }
+                                      }}
+                                      className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1 shrink-0 active:scale-95 cursor-pointer ${
+                                        ssMeta
+                                          ? `${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`
+                                          : "bg-black/5 dark:bg-white/5 text-zinc-400 border-black/5 dark:border-white/10 hover:text-violet-500"
+                                      }`}
+                                      title={
+                                        ssMeta
+                                          ? `Rimuovi da ${ssMeta.groupTitle}`
+                                          : idx < selectedExercises.length - 1
+                                            ? "Unisci in Superset con l'esercizio successivo"
+                                            : "Unisci in Superset con l'esercizio precedente"
+                                      }
+                                    >
+                                      {ssMeta ? (
+                                        <>
+                                          <Unlink2 size={11} className="stroke-[2.5px]" />
+                                          <span>Scollega {ssMeta.label}</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Link2 size={11} className="stroke-[2.5px]" />
+                                          <span>Superset</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Interactive Connector Pill Between Consecutive Exercises */}
+                              {idx < selectedExercises.length - 1 && !isDraggingAny && (
+                                <div className="flex items-center justify-center -my-1 z-10 relative">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedExercises((prev) =>
+                                        toggleSupersetLinkBetween(prev, idx, (item) =>
+                                          storage.getExerciseRestSeconds(item.exerciseId, 90)
+                                        )
+                                      )
+                                    }
+                                    className={`px-3 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1.5 border transition-all active:scale-95 cursor-pointer ${
+                                      isLinkedWithNext && ssMeta && nextSsMeta
+                                        ? `${ssMeta.theme.connectorBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.connectorBorder} shadow-sm`
+                                        : "bg-black/[0.03] dark:bg-white/[0.03] hover:bg-violet-500/10 text-gray-400 hover:text-violet-500 border-dashed border-black/10 dark:border-white/10"
+                                    }`}
+                                    title={
+                                      isLinkedWithNext
+                                        ? "Tocca per scollegare il Superset"
+                                        : "Tocca per unire questi due esercizi in Superset"
+                                    }
+                                  >
+                                    {isLinkedWithNext && ssMeta && nextSsMeta ? (
+                                      <>
+                                        <Link2 size={11} className="stroke-[2.5px]" />
+                                        <span>{ssMeta.groupTitle} ({ssMeta.label} + {nextSsMeta.label}) • Scollega</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Link2 size={11} />
+                                        <span>+ Collega in Superset</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        });
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1393,7 +1555,7 @@ export default function RoutineView() {
             <div className="flex items-center justify-center gap-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5">
               <button
                 type="button"
-                onClick={() => setTempRestSeconds((prev) => Math.max(15, prev - 15))}
+                onClick={() => setTempRestSeconds((prev) => Math.max(0, prev - 15))}
                 className="w-11 h-11 rounded-full bg-white dark:bg-zinc-800 shadow-md flex items-center justify-center text-sm font-black active:scale-90 transition-transform text-foreground cursor-pointer"
               >
                 -15s
@@ -1403,7 +1565,7 @@ export default function RoutineView() {
                   {Math.floor(tempRestSeconds / 60)}:{(tempRestSeconds % 60).toString().padStart(2, "0")}
                 </div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
-                  {tempRestSeconds} secondi
+                  {tempRestSeconds === 0 ? "Nessun recupero (Superset)" : `${tempRestSeconds} secondi`}
                 </div>
               </div>
               <button
@@ -1419,7 +1581,7 @@ export default function RoutineView() {
             <div>
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Preset Rapidi</span>
               <div className="grid grid-cols-4 gap-2">
-                {[30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((sec) => (
+                {[0, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((sec) => (
                   <button
                     key={sec}
                     type="button"
@@ -1430,7 +1592,7 @@ export default function RoutineView() {
                         : "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-foreground border border-black/5 dark:border-white/5"
                     }`}
                   >
-                    {sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`}
+                    {sec === 0 ? "0s (Subito)" : sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`}
                   </button>
                 ))}
               </div>

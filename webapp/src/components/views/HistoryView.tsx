@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet, calculateSetVolume } from "@/utils/storage";
+import { storage, WorkoutSession, Exercise, WorkoutExercise, WorkoutSet, calculateSetVolume, computeSupersetMap } from "@/utils/storage";
 import { useWorkout } from "@/context/WorkoutContext";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, Copy } from "lucide-react";
+import { Calendar, Clock, Dumbbell, Award, Flame, Trash2, X, Plus, User, LogOut, CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, Copy, Link2 } from "lucide-react";
 import { useSession, signOut, signIn } from "next-auth/react";
 import ThemeToggle from "@/components/ThemeToggle";
 import ThemeQuickToggle from "@/components/ThemeQuickToggle";
@@ -693,46 +693,64 @@ export default function HistoryView() {
                 {/* Exercises list summary */}
                 <div className="mt-3 bg-black/5 dark:bg-black/20 rounded-xl p-3 text-[13px] text-gray-600 dark:text-gray-300">
                   <ul className="space-y-0">
-                    {session.exercises.map((ex, idx) => {
-                      const foundEx = catalog.find(c => c.id === ex.exerciseId);
-                      const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
+                    {(() => {
+                      const sessionSupersetMap = computeSupersetMap(session.exercises);
+                      return session.exercises.map((ex, idx) => {
+                        const foundEx = catalog.find(c => c.id === ex.exerciseId);
+                        const isDuration = foundEx ? foundEx.equipment.toLowerCase().includes("durata") : false;
+                        const ssMeta = sessionSupersetMap[idx];
 
-                      // Find the best set (highest weight * reps, or highest duration reps)
-                      let bestSet = ex.sets[0];
-                      if (ex.sets.length > 1) {
-                        bestSet = ex.sets.reduce((best, current) => {
-                          if (isDuration) {
-                            if (current.reps !== best.reps) {
+                        // Find the best set (highest weight * reps, or highest duration reps)
+                        let bestSet = ex.sets[0];
+                        if (ex.sets.length > 1) {
+                          bestSet = ex.sets.reduce((best, current) => {
+                            if (isDuration) {
+                              if (current.reps !== best.reps) {
+                                return current.reps > best.reps ? current : best;
+                              }
+                              return current.weight > best.weight ? current : best;
+                            } else {
+                              const currentScore = current.weight * current.reps;
+                              const bestScore = best.weight * best.reps;
+                              if (currentScore !== bestScore) {
+                                return currentScore > bestScore ? current : best;
+                              }
+                              if (current.weight !== best.weight) {
+                                return current.weight > best.weight ? current : best;
+                              }
                               return current.reps > best.reps ? current : best;
                             }
-                            return current.weight > best.weight ? current : best;
-                          } else {
-                            const currentScore = current.weight * current.reps;
-                            const bestScore = best.weight * best.reps;
-                            if (currentScore !== bestScore) {
-                              return currentScore > bestScore ? current : best;
-                            }
-                            if (current.weight !== best.weight) {
-                              return current.weight > best.weight ? current : best;
-                            }
-                            return current.reps > best.reps ? current : best;
-                          }
-                        }, ex.sets[0]);
-                      }
+                          }, ex.sets[0]);
+                        }
 
-                      // Adjust font size dynamically based on length of exerciseName
-                      const nameLength = ex.exerciseName.length;
-                      let fontSizeClass = "text-[14px]";
-                      if (nameLength > 30) fontSizeClass = "text-[10.5px]";
-                      else if (nameLength > 20) fontSizeClass = "text-[12px]";
-                      else if (nameLength < 12) fontSizeClass = "text-[14.5px]";
+                        // Adjust font size dynamically based on length of exerciseName
+                        const nameLength = ex.exerciseName.length;
+                        let fontSizeClass = "text-[14px]";
+                        if (nameLength > 30) fontSizeClass = "text-[10.5px]";
+                        else if (nameLength > 20) fontSizeClass = "text-[12px]";
+                        else if (nameLength < 12) fontSizeClass = "text-[14.5px]";
 
-                      return (
-                        <li key={idx} className="flex flex-col py-1.5 first:pt-0 last:pb-0 border-b border-black/5 dark:border-white/5 last:border-b-0 gap-0.5">
-                          {/* Row 1: Exercise full name (with responsive font size, fully displayed) */}
-                          <span className={`font-extrabold text-zinc-900 dark:text-white leading-tight break-words ${fontSizeClass}`}>
-                            {ex.exerciseName}
-                          </span>
+                        return (
+                          <li
+                            key={idx}
+                            className={`flex flex-col py-1.5 first:pt-0 last:pb-0 border-b border-black/5 dark:border-white/5 last:border-b-0 gap-0.5 ${
+                              ssMeta ? `${ssMeta.theme.accentBorder} pl-2.5` : ""
+                            }`}
+                          >
+                            {/* Row 1: Exercise full name (with responsive font size, fully displayed) */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {ssMeta && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-0.5 border ${ssMeta.theme.badgeBg} ${ssMeta.theme.badgeText} ${ssMeta.theme.badgeBorder}`}
+                                >
+                                  <Link2 size={9} className="stroke-[2.5px]" />
+                                  {ssMeta.label}
+                                </span>
+                              )}
+                              <span className={`font-extrabold text-zinc-900 dark:text-white leading-tight break-words ${fontSizeClass}`}>
+                                {ex.exerciseName}
+                              </span>
+                            </div>
                           {/* Row 2: Set count & best set details */}
                           <span className="text-gray-500 dark:text-gray-400 font-bold text-[11px] font-sans">
                             {isDuration ? (
@@ -777,8 +795,9 @@ export default function HistoryView() {
                             </span>
                           )}
                         </li>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </ul>
                 </div>
               </div>
@@ -1243,7 +1262,7 @@ export default function HistoryView() {
                   <CheckCircle2 size={20} className="shrink-0 animate-pulse" />
                   <div className="text-xs">
                     <div className="font-bold">Google Sheets Auto-Sync Attivo</div>
-                    <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati su &quot;Scheda Cata 20&quot;.</div>
+                    <div className="opacity-90 mt-0.5">I tuoi allenamenti verranno sincronizzati automaticamente su Google Fogli.</div>
                   </div>
                 </div>
               ) : (

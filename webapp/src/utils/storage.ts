@@ -19,9 +19,10 @@ export interface WorkoutSet {
 export interface TemplateExerciseConfig {
   exerciseId: string;
   setsCount?: number;   // Number of sets (defaults to 3 if not set)
-  restSeconds?: number; // Custom rest timer in seconds for this exercise in the routine
+  restSeconds?: number; // Custom rest timer in seconds for this exercise in the routine (0 = no rest / immediate superset transition)
   targetReps?: string;  // Target reps or range (e.g. "8-10", "12")
   targetRpe?: number;   // Target RPE (e.g. 8, 8.5, 9)
+  supersetId?: string;  // Optional superset group identifier shared by 2+ exercises
 }
 
 export interface WorkoutExercise {
@@ -29,9 +30,267 @@ export interface WorkoutExercise {
   exerciseName: string;
   sets: WorkoutSet[];
   feedback?: string;
-  restSeconds?: number; // Custom rest timer in seconds for this exercise
+  restSeconds?: number; // Custom rest timer in seconds for this exercise (0 = no rest)
   targetReps?: string;  // Target reps or range
   targetRpe?: number;   // Target RPE
+  supersetId?: string;  // Optional superset group identifier shared by 2+ exercises
+}
+
+export interface SupersetColorTheme {
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+  solidBg: string;
+  accentBorder: string;
+  connectorBg: string;
+  connectorBorder: string;
+}
+
+export const SUPERSET_COLORS: SupersetColorTheme[] = [
+  {
+    badgeBg: "bg-violet-500/15",
+    badgeText: "text-violet-600 dark:text-violet-400",
+    badgeBorder: "border-violet-500/30",
+    solidBg: "bg-violet-600 text-white",
+    accentBorder: "border-l-4 border-l-violet-500",
+    connectorBg: "bg-violet-500/10 hover:bg-violet-500/20",
+    connectorBorder: "border-violet-500/30",
+  },
+  {
+    badgeBg: "bg-cyan-500/15",
+    badgeText: "text-cyan-600 dark:text-cyan-400",
+    badgeBorder: "border-cyan-500/30",
+    solidBg: "bg-cyan-600 text-white",
+    accentBorder: "border-l-4 border-l-cyan-500",
+    connectorBg: "bg-cyan-500/10 hover:bg-cyan-500/20",
+    connectorBorder: "border-cyan-500/30",
+  },
+  {
+    badgeBg: "bg-rose-500/15",
+    badgeText: "text-rose-600 dark:text-rose-400",
+    badgeBorder: "border-rose-500/30",
+    solidBg: "bg-rose-600 text-white",
+    accentBorder: "border-l-4 border-l-rose-500",
+    connectorBg: "bg-rose-500/10 hover:bg-rose-500/20",
+    connectorBorder: "border-rose-500/30",
+  },
+  {
+    badgeBg: "bg-emerald-500/15",
+    badgeText: "text-emerald-600 dark:text-emerald-400",
+    badgeBorder: "border-emerald-500/30",
+    solidBg: "bg-emerald-600 text-white",
+    accentBorder: "border-l-4 border-l-emerald-500",
+    connectorBg: "bg-emerald-500/10 hover:bg-emerald-500/20",
+    connectorBorder: "border-emerald-500/30",
+  },
+  {
+    badgeBg: "bg-amber-500/15",
+    badgeText: "text-amber-600 dark:text-amber-400",
+    badgeBorder: "border-amber-500/30",
+    solidBg: "bg-amber-500 text-white",
+    accentBorder: "border-l-4 border-l-amber-500",
+    connectorBg: "bg-amber-500/10 hover:bg-amber-500/20",
+    connectorBorder: "border-amber-500/30",
+  },
+];
+
+export interface SupersetMeta {
+  supersetId: string;
+  groupLetter: string;       // "A", "B", "C"...
+  groupTitle: string;        // "Superset A", "Triset A", "Giant Set A"
+  label: string;             // "A1", "A2", "B1"...
+  memberIndex: number;       // 0-based index within the superset
+  totalMembers: number;      // total exercises in this superset (>= 2)
+  isLastMember: boolean;     // true if last member in this superset
+  connectedPrev: boolean;    // true if immediately preceded by an exercise with same supersetId
+  connectedNext: boolean;    // true if immediately followed by an exercise with same supersetId
+  colorIndex: number;        // index into SUPERSET_COLORS
+  theme: SupersetColorTheme;
+}
+
+export function computeSupersetMap(
+  items: { supersetId?: string }[]
+): (SupersetMeta | null)[] {
+  // Count occurrences of each supersetId
+  const counts: Record<string, number> = {};
+  items.forEach((item) => {
+    if (item.supersetId) {
+      counts[item.supersetId] = (counts[item.supersetId] || 0) + 1;
+    }
+  });
+
+  // Assign letters A, B, C... in order of first appearance for groups with >= 2 exercises
+  const groupOrder: Record<string, number> = {};
+  const seenCount: Record<string, number> = {};
+  let nextGroupIdx = 0;
+
+  return items.map((item, idx) => {
+    const ssId = item.supersetId;
+    if (!ssId || (counts[ssId] || 0) < 2) {
+      return null;
+    }
+
+    if (groupOrder[ssId] === undefined) {
+      groupOrder[ssId] = nextGroupIdx++;
+      seenCount[ssId] = 0;
+    }
+
+    const gIdx = groupOrder[ssId];
+    const mIdx = seenCount[ssId]++;
+    const total = counts[ssId];
+    const letter = String.fromCharCode(65 + (gIdx % 26)); // A, B, C...
+    const prefix = total === 2 ? "Superset" : total === 3 ? "Triset" : "Giant Set";
+    const colorIdx = gIdx % SUPERSET_COLORS.length;
+
+    const prevId = idx > 0 ? items[idx - 1]?.supersetId : undefined;
+    const nextId = idx < items.length - 1 ? items[idx + 1]?.supersetId : undefined;
+
+    return {
+      supersetId: ssId,
+      groupLetter: letter,
+      groupTitle: `${prefix} ${letter}`,
+      label: `${letter}${mIdx + 1}`,
+      memberIndex: mIdx,
+      totalMembers: total,
+      isLastMember: mIdx === total - 1,
+      connectedPrev: prevId === ssId,
+      connectedNext: nextId === ssId,
+      colorIndex: colorIdx,
+      theme: SUPERSET_COLORS[colorIdx],
+    };
+  });
+}
+
+export function toggleSupersetLinkBetween<T extends { supersetId?: string; restSeconds?: number }>(
+  list: T[],
+  idx: number,
+  getDefaultRest: (item: T) => number = () => 90
+): T[] {
+  if (idx < 0 || idx >= list.length - 1) return list;
+  const copy = list.map((item) => ({ ...item }));
+  const current = copy[idx];
+  const next = copy[idx + 1];
+
+  const areLinked = Boolean(current.supersetId && current.supersetId === next.supersetId);
+
+  if (areLinked) {
+    // Unlink at boundary between idx and idx + 1
+    const oldId = current.supersetId!;
+    // Find all indices with oldId
+    const indicesWithOldId = copy
+      .map((it, i) => (it.supersetId === oldId ? i : -1))
+      .filter((i) => i !== -1);
+
+    const upperIndices = indicesWithOldId.filter((i) => i <= idx);
+    const lowerIndices = indicesWithOldId.filter((i) => i >= idx + 1);
+
+    if (upperIndices.length < 2) {
+      upperIndices.forEach((i) => {
+        copy[i].supersetId = undefined;
+        if (copy[i].restSeconds === 0) {
+          copy[i].restSeconds = getDefaultRest(copy[i]);
+        }
+      });
+    }
+
+    if (lowerIndices.length < 2) {
+      lowerIndices.forEach((i) => {
+        copy[i].supersetId = undefined;
+        if (copy[i].restSeconds === 0) {
+          copy[i].restSeconds = getDefaultRest(copy[i]);
+        }
+      });
+    } else if (upperIndices.length >= 2) {
+      // Both sides still have 2+ exercises -> split into two separate superset IDs
+      const newLowerId = "ss_" + Math.random().toString(36).substr(2, 7);
+      lowerIndices.forEach((i) => {
+        copy[i].supersetId = newLowerId;
+      });
+      // Ensure the new last member of upper group has full rest if it was 0
+      const lastUpperIdx = upperIndices[upperIndices.length - 1];
+      if (copy[lastUpperIdx].restSeconds === 0) {
+        copy[lastUpperIdx].restSeconds = getDefaultRest(copy[lastUpperIdx]);
+      }
+    }
+  } else {
+    // Link idx and idx + 1 into the same superset
+    const targetId =
+      current.supersetId ||
+      next.supersetId ||
+      "ss_" + Math.random().toString(36).substr(2, 7);
+
+    // If both already belonged to different supersets, merge next's group into current's group
+    if (current.supersetId && next.supersetId && current.supersetId !== next.supersetId) {
+      const oldNextId = next.supersetId;
+      copy.forEach((it) => {
+        if (it.supersetId === oldNextId) {
+          it.supersetId = targetId;
+        }
+      });
+    } else {
+      current.supersetId = targetId;
+      next.supersetId = targetId;
+    }
+
+    // Set 0s rest on non-final members of this superset if they currently have default rest (e.g. 90s)
+    const groupIndices = copy
+      .map((it, i) => (it.supersetId === targetId ? i : -1))
+      .filter((i) => i !== -1);
+
+    groupIndices.forEach((gIdx, pos) => {
+      const isLast = pos === groupIndices.length - 1;
+      if (!isLast) {
+        const defRest = getDefaultRest(copy[gIdx]);
+        if (copy[gIdx].restSeconds === undefined || copy[gIdx].restSeconds === defRest) {
+          copy[gIdx].restSeconds = 0;
+        }
+      } else {
+        if (copy[gIdx].restSeconds === undefined || copy[gIdx].restSeconds === 0) {
+          copy[gIdx].restSeconds = getDefaultRest(copy[gIdx]);
+        }
+      }
+    });
+  }
+
+  return copy;
+}
+
+export function removeExerciseFromSuperset<T extends { supersetId?: string; restSeconds?: number }>(
+  list: T[],
+  idx: number,
+  getDefaultRest: (item: T) => number = () => 90
+): T[] {
+  if (idx < 0 || idx >= list.length) return list;
+  const targetId = list[idx].supersetId;
+  if (!targetId) return list;
+
+  const copy = list.map((item) => ({ ...item }));
+  copy[idx].supersetId = undefined;
+  if (copy[idx].restSeconds === 0) {
+    copy[idx].restSeconds = getDefaultRest(copy[idx]);
+  }
+
+  // Check remaining members of targetId
+  const remaining = copy
+    .map((it, i) => (it.supersetId === targetId ? i : -1))
+    .filter((i) => i !== -1);
+
+  if (remaining.length < 2) {
+    remaining.forEach((i) => {
+      copy[i].supersetId = undefined;
+      if (copy[i].restSeconds === 0) {
+        copy[i].restSeconds = getDefaultRest(copy[i]);
+      }
+    });
+  } else {
+    // Ensure the last remaining member has full rest
+    const lastIdx = remaining[remaining.length - 1];
+    if (copy[lastIdx].restSeconds === 0) {
+      copy[lastIdx].restSeconds = getDefaultRest(copy[lastIdx]);
+    }
+  }
+
+  return copy;
 }
 
 export interface WorkoutSession {
@@ -61,9 +320,10 @@ export function normalizeTemplateExercise(entry: string | TemplateExerciseConfig
   return {
     exerciseId: entry.exerciseId,
     setsCount: entry.setsCount && entry.setsCount > 0 ? entry.setsCount : 3,
-    restSeconds: entry.restSeconds !== undefined && entry.restSeconds > 0 ? entry.restSeconds : 90,
+    restSeconds: entry.restSeconds !== undefined && entry.restSeconds >= 0 ? entry.restSeconds : 90,
     targetReps: entry.targetReps || "",
     targetRpe: entry.targetRpe,
+    supersetId: entry.supersetId,
   };
 }
 
